@@ -55,11 +55,11 @@ export function ChartWrapper({
   if (loading) {
     return (
       <Card className={className}>
-        <CardHeader className="pb-2">
+        <CardHeader className="border-b border-border/50 pb-4">
           <Skeleton className="h-5 w-48" />
         </CardHeader>
         <CardContent>
-          <Skeleton className="h-64 w-full rounded-lg" />
+          <Skeleton className="h-64 w-full rounded-xl" />
         </CardContent>
       </Card>
     );
@@ -67,13 +67,13 @@ export function ChartWrapper({
 
   return (
     <Card className={className}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-base font-semibold">{title}</CardTitle>
+      <CardHeader className="border-b border-border/50 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
             {onChartMeasureChange && chartMeasure !== undefined && (
               <div
-                className="flex items-center gap-0.5 rounded-lg border border-border bg-muted/50 p-0.5"
+                className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-muted/40 p-0.5 shadow-inner dark:bg-muted/25"
                 role="group"
                 aria-label={chartMeasureTitle}
               >
@@ -81,7 +81,7 @@ export function ChartWrapper({
                   type="button"
                   onClick={() => onChartMeasureChange("money")}
                   title={chartMeasureMoneyLabel}
-                  className={`rounded-md px-2 py-1 text-xs font-semibold tabular-nums transition-colors ${
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors ${
                     chartMeasure === "money"
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
@@ -93,7 +93,7 @@ export function ChartWrapper({
                   type="button"
                   onClick={() => onChartMeasureChange("liters")}
                   title={chartMeasureLitersLabel}
-                  className={`rounded-md px-2 py-1 text-xs font-semibold tabular-nums transition-colors ${
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold tabular-nums transition-colors ${
                     chartMeasure === "liters"
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
@@ -104,7 +104,7 @@ export function ChartWrapper({
               </div>
             )}
             {variants && variants.length > 1 && onVariantChange && (
-              <div className="flex items-center gap-0.5 bg-muted/60 rounded-lg p-0.5">
+              <div className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-muted/50 p-0.5 dark:bg-muted/30">
                 {variants.map((v) => {
                   const Icon = VARIANT_ICONS[v];
                   const isActive = v === activeVariant;
@@ -113,7 +113,7 @@ export function ChartWrapper({
                       key={v}
                       onClick={() => onVariantChange(v)}
                       title={VARIANT_LABELS[v]}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all ${
+                      className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all ${
                         isActive
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -129,7 +129,7 @@ export function ChartWrapper({
           </div>
         </div>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="pt-4">{children}</CardContent>
     </Card>
   );
 }

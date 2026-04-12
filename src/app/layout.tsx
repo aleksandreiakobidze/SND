@@ -31,7 +31,7 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="h-full">
+      <body className="h-full min-h-0 font-sans">
         <AppShell>{children}</AppShell>
       </body>
     </html>

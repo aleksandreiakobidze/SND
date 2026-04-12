@@ -18,13 +18,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <AuthProvider>
           <TooltipProvider>
             {isLogin ? (
-              <main className="min-h-full">{children}</main>
+              <main className="min-h-full bg-background">{children}</main>
             ) : (
-              <div className="flex h-full">
+              <div className="flex h-full min-h-0">
                 <Sidebar />
-                <div className="flex min-w-0 flex-1 flex-col">
+                <div className="relative flex min-w-0 flex-1 flex-col bg-background">
                   <Header />
-                  <main className="flex-1 overflow-auto">{children}</main>
+                  <main className="relative flex-1 overflow-auto overscroll-contain">
+                    {children}
+                  </main>
                 </div>
               </div>
             )}

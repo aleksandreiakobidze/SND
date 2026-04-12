@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { useLocale } from "@/lib/locale-context";
 import type { WorkspaceTree } from "@/lib/workspace-db";
 import { SavedReportCard } from "@/components/workspace/SavedReportCard";
@@ -118,21 +119,17 @@ export function WorkspacePageClient() {
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
-      <div className="relative mx-auto max-w-[1600px] px-6 pb-10 pt-6">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("myWorkspace")}</h1>
-            <p className="text-muted-foreground mt-1 text-sm max-w-2xl">{t("workspacePageDesc")}</p>
-          </div>
+      <div className="relative mx-auto max-w-[1600px] space-y-8 px-6 pb-10 pt-6">
+        <PageHeader title={t("myWorkspace")} description={t("workspacePageDesc")}>
           <Link
             href="/agent"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl border-border/70" })}
           >
             {t("workspaceOpenFullAgent")}
           </Link>
-        </div>
+        </PageHeader>
 
-        <div className="mb-6 flex flex-col gap-3 overflow-x-auto rounded-xl border border-border/80 bg-muted/20 p-3 sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-3 overflow-x-auto rounded-2xl border border-border/50 bg-muted/25 p-4 shadow-inner dark:bg-muted/15 sm:flex-row sm:items-end">
           <div className="flex min-w-0 flex-1 flex-wrap gap-2">
             {tree.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">{t("workspaceEmpty")}</p>
@@ -143,10 +140,10 @@ export function WorkspacePageClient() {
                     type="button"
                     onClick={() => setActiveWsId(w.id)}
                     className={cn(
-                      "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      "rounded-xl px-3 py-2 text-sm font-semibold transition-all",
                       activeWsId === w.id
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
+                        ? "bg-background text-foreground shadow-md ring-1 ring-border/60"
+                        : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
                     )}
                   >
                     {w.title}
@@ -201,8 +198,8 @@ export function WorkspacePageClient() {
             ) : (
               activeWs.sections.map((section) => (
                 <section key={section.id} className="space-y-3">
-                  <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
-                    <h2 className="text-lg font-semibold">{section.title}</h2>
+                  <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-3">
+                    <h2 className="text-lg font-semibold tracking-tight">{section.title}</h2>
                     <Button
                       type="button"
                       variant="ghost"

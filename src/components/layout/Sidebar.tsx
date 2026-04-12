@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { useState, useEffect } from "react";
@@ -50,14 +50,27 @@ export function Sidebar() {
       <Link
         key={item.href}
         href={item.href}
+        title={collapsed ? label : undefined}
         className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
           isActive
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            ? "bg-sidebar-primary/12 text-sidebar-primary shadow-sm ring-1 ring-sidebar-primary/20 dark:bg-sidebar-primary/18"
+            : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
         )}
       >
-        <item.icon className="h-5 w-5 shrink-0" />
+        {isActive && (
+          <span
+            className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-sidebar-primary"
+            aria-hidden
+          />
+        )}
+        <item.icon
+          className={cn(
+            "h-[1.15rem] w-[1.15rem] shrink-0 transition-transform duration-200",
+            isActive && "text-sidebar-primary",
+            !isActive && "group-hover:scale-105",
+          )}
+        />
         {!collapsed && <span className="truncate">{label}</span>}
       </Link>
     );
@@ -67,20 +80,23 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          "sticky top-0 h-screen border-r border-border bg-card flex flex-col transition-all duration-300",
-          collapsed ? "w-16" : "w-64",
+          "sticky top-0 flex h-screen shrink-0 flex-col border-r border-sidebar-border/80 bg-sidebar/95 shadow-[4px_0_24px_-12px_oklch(0_0_0/12%)] backdrop-blur-md transition-[width] duration-300 dark:shadow-[4px_0_32px_-16px_oklch(0_0_0/45%)]",
+          collapsed ? "w-[4.25rem]" : "w-[17.5rem]",
         )}
       >
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+        <div className="flex h-[4.25rem] shrink-0 items-center gap-3 border-b border-sidebar-border/60 px-4">
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-chart-1 to-chart-4 text-[13px] font-bold text-primary-foreground shadow-md ring-1 ring-white/20">
+            <Sparkles className="absolute -right-1 -top-1 h-4 w-4 opacity-40" aria-hidden />
             S
           </div>
           {!collapsed && (
-            <span className="truncate text-lg font-semibold tracking-tight">{t("appName")}</span>
+            <span className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-sidebar-foreground">
+              {t("appName")}
+            </span>
           )}
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
+        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2.5 py-4">
           {collapsed ? (
             SIDEBAR_NAV_GROUPS.flatMap((group) =>
               navItemsInGroup(group.id).filter(
@@ -88,7 +104,7 @@ export function Sidebar() {
               ),
             ).map((item) => renderLink(item))
           ) : (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-5">
               {SIDEBAR_NAV_GROUPS.map((group) => {
                 const items = navItemsInGroup(group.id).filter(
                   (item) => !nav.hiddenSet.has(item.id) && allowItem(item),
@@ -107,20 +123,20 @@ export function Sidebar() {
                     <div className="space-y-1">
                       <CollapsibleTrigger
                         className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-muted-foreground transition-colors",
-                          "hover:bg-muted/60 hover:text-foreground",
+                          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors",
+                          "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                           "outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         )}
                       >
                         <span className="truncate">{groupTitle}</span>
                         <ChevronDown
                           className={cn(
-                            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                            "h-3.5 w-3.5 shrink-0 text-muted-foreground/80 transition-transform duration-200",
                             open && "rotate-180",
                           )}
                         />
                       </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-1">
+                      <CollapsibleContent className="space-y-0.5">
                         {items.map((item) => renderLink(item))}
                       </CollapsibleContent>
                     </div>
@@ -131,21 +147,30 @@ export function Sidebar() {
           )}
         </nav>
 
-        <div className="flex flex-col border-t border-border">
+        <div className="flex flex-col gap-0.5 border-t border-sidebar-border/60 p-2">
           <Button
             type="button"
             variant="ghost"
-            className="h-12 justify-start gap-3 rounded-none px-3 text-muted-foreground hover:text-foreground"
+            className={cn(
+              "h-11 justify-start gap-3 rounded-xl px-3 text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+              collapsed && "justify-center px-0",
+            )}
             onClick={() => setSettingsOpen(true)}
             title={t("navOpenSettings")}
           >
-            <Settings2 className="h-5 w-5 shrink-0" />
-            {!collapsed && <span className="truncate text-sm">{t("navOpenSettings")}</span>}
+            <Settings2 className="h-[1.15rem] w-[1.15rem] shrink-0" />
+            {!collapsed && (
+              <span className="truncate text-sm font-medium">{t("navOpenSettings")}</span>
+            )}
           </Button>
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="flex h-12 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className={cn(
+              "flex h-10 items-center rounded-xl text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              collapsed ? "justify-center" : "justify-center gap-2 px-3 text-xs font-medium",
+            )}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>

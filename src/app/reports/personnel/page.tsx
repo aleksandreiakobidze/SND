@@ -14,6 +14,7 @@ import { FilterBar } from "@/components/filters/FilterBar";
 import { StickyFilterBlock } from "@/components/filters/StickyFilterBlock";
 import { CrossFilterChips } from "@/components/filters/CrossFilterChips";
 import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -72,20 +73,15 @@ export default function PersonnelReportPage() {
       <PageGradientBackdrop />
       <div className="relative mx-auto max-w-[1600px] px-6 pb-8">
       <StickyFilterBlock className={cn(stickyFilterGlassClass, "pt-6")}>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("personnel")}</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {t("personnelPageDescExtended")}
-          </p>
-        </div>
+        <PageHeader title={t("personnel")} description={t("personnelPageDescExtended")} />
 
         <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
         <CrossFilterChips crossFilters={crossFilters} onRemove={removeCrossFilter} onClearAll={clearAllCrossFilters} />
       </StickyFilterBlock>
 
-      <div className="pt-6 space-y-6">
+      <div className="animate-fade-in space-y-8 pt-8">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap h-auto gap-1">
+        <TabsList className="h-auto min-h-11 w-full max-w-2xl flex-wrap gap-1 rounded-2xl border border-border/50 bg-muted/25 p-1 dark:bg-muted/15">
           <TabsTrigger value="managers">{t("managers")}</TabsTrigger>
           <TabsTrigger value="salesmen">{t("salesmen")}</TabsTrigger>
           <TabsTrigger value="drivers">{t("drivers")}</TabsTrigger>

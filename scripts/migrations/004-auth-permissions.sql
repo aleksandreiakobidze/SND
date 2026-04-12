@@ -22,6 +22,8 @@ IF NOT EXISTS (SELECT 1 FROM dbo.SndApp_Permission WHERE [Key] = N'access_online
   INSERT INTO dbo.SndApp_Permission ([Key]) VALUES (N'access_online_orders');
 IF NOT EXISTS (SELECT 1 FROM dbo.SndApp_Permission WHERE [Key] = N'manage_users')
   INSERT INTO dbo.SndApp_Permission ([Key]) VALUES (N'manage_users');
+IF NOT EXISTS (SELECT 1 FROM dbo.SndApp_Permission WHERE [Key] = N'assign_sales_driver')
+  INSERT INTO dbo.SndApp_Permission ([Key]) VALUES (N'assign_sales_driver');
 GO
 
 IF OBJECT_ID(N'dbo.SndApp_RolePermission', N'U') IS NULL

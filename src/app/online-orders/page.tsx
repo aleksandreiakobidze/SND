@@ -5,6 +5,7 @@ import { useLocale } from "@/lib/locale-context";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import { buildFilterQueryString } from "@/lib/filters";
+import { formatCurrency } from "@/lib/formatCurrency";
 import { FilterBar } from "@/components/filters/FilterBar";
 import { StickyFilterBlock } from "@/components/filters/StickyFilterBlock";
 import { CrossFilterChips } from "@/components/filters/CrossFilterChips";
@@ -24,6 +25,7 @@ import { downloadCsvFromRows } from "@/lib/export-csv";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { MinOrderRulesTable } from "@/components/online-orders/MinOrderRulesTable";
 import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
 
 type OnlineOrderRow = {
@@ -234,14 +236,13 @@ export default function OnlineOrdersPage() {
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
-      <div className="relative mx-auto max-w-[1600px] space-y-6 px-6 pb-8 pt-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t("onlineOrders")}</h1>
-        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">{t("onlineOrdersPageDesc")}</p>
-        <div className="mt-2 max-w-3xl border-l-2 border-primary/40 pl-3 space-y-3">
-          <p className="text-sm font-medium text-foreground">{t("minOrderAmountRestriction")}</p>
+      <div className="relative mx-auto max-w-[1600px] space-y-8 px-6 pb-8 pt-6">
+      <div className="space-y-5">
+        <PageHeader title={t("onlineOrders")} description={t("onlineOrdersPageDesc")} />
+        <div className="max-w-3xl space-y-3 rounded-2xl border border-primary/25 bg-primary/[0.04] p-5 dark:bg-primary/[0.08]">
+          <p className="text-sm font-semibold text-foreground">{t("minOrderAmountRestriction")}</p>
           <MinOrderRulesTable />
-          <p className="text-muted-foreground text-sm">{t("minOrderRulesHint")}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{t("minOrderRulesHint")}</p>
         </div>
       </div>
 
@@ -259,148 +260,150 @@ export default function OnlineOrdersPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={() => load()} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          {t("refresh")}
-        </Button>
-        <Button
-          type="button"
-          variant="default"
-          size="sm"
-          className="shadow-sm"
-          disabled={loading || rows.length === 0 || exportingExcel}
-          onClick={() => {
-            void (async () => {
-              setExportingExcel(true);
-              try {
-                await downloadExcelFromRows(exportRows, "online_orders", {
-                  sheetName: "OnlineOrders",
+      <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              {t("refresh")}
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="shadow-sm"
+              disabled={loading || rows.length === 0 || exportingExcel}
+              onClick={() => {
+                void (async () => {
+                  setExportingExcel(true);
+                  try {
+                    await downloadExcelFromRows(exportRows, "online_orders", {
+                      sheetName: "OnlineOrders",
+                      totals: exportTotals,
+                      totalLabel: t("tableTotal"),
+                    });
+                  } finally {
+                    setExportingExcel(false);
+                  }
+                })();
+              }}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              {exportingExcel ? t("loading") : t("exportExcel")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading || rows.length === 0}
+              onClick={() =>
+                downloadCsvFromRows(exportRows, "online_orders", {
                   totals: exportTotals,
                   totalLabel: t("tableTotal"),
-                });
-              } finally {
-                setExportingExcel(false);
-              }
-            })();
-          }}
-        >
-          <FileSpreadsheet className="w-4 h-4 mr-2" />
-          {exportingExcel ? t("loading") : t("exportExcel")}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={loading || rows.length === 0}
-          onClick={() =>
-            downloadCsvFromRows(exportRows, "online_orders", {
-              totals: exportTotals,
-              totalLabel: t("tableTotal"),
-            })
-          }
-        >
-          <Download className="w-4 h-4 mr-2" />
-          {t("exportCsv")}
-        </Button>
-        <Button
-          type="button"
-          onClick={transfer}
-          disabled={transferring || selected.size === 0 || loading}
-        >
-          <ArrowRight className="w-4 h-4 mr-2" />
-          {t("transferSelected")}
-          {selected.size > 0 ? ` (${selected.size})` : ""}
-        </Button>
-      </div>
-
-      {transferMessage && (
-        <pre className="text-sm whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-4 text-foreground">
-          {transferMessage}
-        </pre>
-      )}
-
-      {loading ? (
-        <Skeleton className="h-96 w-full rounded-lg" />
-      ) : (
-        <div className="rounded-lg border border-border overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-primary"
-                    checked={allIds.length > 0 && selected.size === allIds.length}
-                    onChange={toggleAll}
-                    aria-label={t("selectAll")}
-                  />
-                </TableHead>
-                <TableHead>{t("date")}</TableHead>
-                <TableHead>{t("customer")}</TableHead>
-                <TableHead>{t("customerCategory")}</TableHead>
-                <TableHead>{t("region")}</TableHead>
-                <TableHead>{t("salesman")}</TableHead>
-                <TableHead className="text-right">{t("amount")}</TableHead>
-                <TableHead className="text-right">{t("lines")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
-                    {t("noPendingOnlineOrders")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rows.map((row) => {
-                  const id = Number(row.IdReal1);
-                  return (
-                    <TableRow key={id}>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-primary"
-                          checked={selected.has(id)}
-                          onChange={() => toggleOne(id)}
-                          aria-label={t("selectOrderRow")}
-                        />
-                      </TableCell>
-                      <TableCell>{formatCell(row.Data)}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{formatCell(row.Org)}</TableCell>
-                      <TableCell>{formatCell(row.OrgT)}</TableCell>
-                      <TableCell>{formatCell(row.Reg)}</TableCell>
-                      <TableCell className="max-w-[140px] truncate">{formatCell(row.Gvari)}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        ₾{formatCell(row.OrderTotal)}
-                      </TableCell>
-                      <TableCell className="text-right">{formatCell(row.LineCount)}</TableCell>
-                    </TableRow>
-                  );
                 })
-              )}
-            </TableBody>
-            {rows.length > 0 && (
-              <TableFooter>
-                <TableRow className="hover:bg-muted/50">
-                  <TableCell />
-                  <TableCell className="font-semibold">{t("tableTotal")}</TableCell>
-                  <TableCell />
-                  <TableCell />
-                  <TableCell />
-                  <TableCell />
-                  <TableCell className="text-right font-semibold tabular-nums">
-                    ₾{formatCell(orderTotals.orderTotal)}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">
-                    {orderTotals.lineCount.toLocaleString()}
-                  </TableCell>
-                </TableRow>
-              </TableFooter>
-            )}
-          </Table>
-        </div>
-      )}
+              }
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {t("exportCsv")}
+            </Button>
+            <Button
+              type="button"
+              onClick={transfer}
+              disabled={transferring || selected.size === 0 || loading}
+            >
+              <ArrowRight className="mr-2 h-4 w-4" />
+              {t("transferSelected")}
+              {selected.size > 0 ? ` (${selected.size})` : ""}
+            </Button>
+          </div>
+
+          {transferMessage && (
+            <pre className="rounded-lg border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap text-foreground">
+              {transferMessage}
+            </pre>
+          )}
+
+          {loading ? (
+            <Skeleton className="h-96 w-full rounded-lg" />
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={allIds.length > 0 && selected.size === allIds.length}
+                        onChange={toggleAll}
+                        aria-label={t("selectAll")}
+                      />
+                    </TableHead>
+                    <TableHead>{t("date")}</TableHead>
+                    <TableHead>{t("customer")}</TableHead>
+                    <TableHead>{t("customerCategory")}</TableHead>
+                    <TableHead>{t("region")}</TableHead>
+                    <TableHead>{t("salesman")}</TableHead>
+                    <TableHead className="text-right">{t("amount")}</TableHead>
+                    <TableHead className="text-right">{t("lines")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                        {t("noPendingOnlineOrders")}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rows.map((row) => {
+                      const id = Number(row.IdReal1);
+                      return (
+                        <TableRow key={id}>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-primary"
+                              checked={selected.has(id)}
+                              onChange={() => toggleOne(id)}
+                              aria-label={t("selectOrderRow")}
+                            />
+                          </TableCell>
+                          <TableCell>{formatCell(row.Data)}</TableCell>
+                          <TableCell className="max-w-[200px] truncate">{formatCell(row.Org)}</TableCell>
+                          <TableCell>{formatCell(row.OrgT)}</TableCell>
+                          <TableCell>{formatCell(row.Reg)}</TableCell>
+                          <TableCell className="max-w-[140px] truncate">{formatCell(row.Gvari)}</TableCell>
+                          <TableCell className="text-right font-medium">
+                            ₾{formatCell(row.OrderTotal)}
+                          </TableCell>
+                          <TableCell className="text-right">{formatCell(row.LineCount)}</TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+                {rows.length > 0 && (
+                  <TableFooter>
+                    <TableRow className="hover:bg-muted/50">
+                      <TableCell />
+                      <TableCell className="font-semibold">{t("tableTotal")}</TableCell>
+                      <TableCell />
+                      <TableCell />
+                      <TableCell />
+                      <TableCell />
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        ₾{formatCell(orderTotals.orderTotal)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {orderTotals.lineCount.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  </TableFooter>
+                )}
+              </Table>
+            </div>
+          )}
+      </div>
       </div>
     </div>
   );

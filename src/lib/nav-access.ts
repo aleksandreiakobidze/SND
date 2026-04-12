@@ -5,6 +5,7 @@ export type NavCapabilities = {
   canUseAgent: boolean;
   canAccessOnlineOrders: boolean;
   canManageUsers: boolean;
+  canAssignSalesDriver: boolean;
 };
 
 /** Which sidebar items the user may see (server still enforces API). */
@@ -15,6 +16,8 @@ export function isNavItemVisible(item: SidebarNavItemDef, c: NavCapabilities): b
     case "products":
     case "personnel":
     case "customers":
+      return c.canViewDashboard;
+    case "sales-map":
       return c.canViewDashboard;
     case "workspace":
       return c.canViewDashboard;

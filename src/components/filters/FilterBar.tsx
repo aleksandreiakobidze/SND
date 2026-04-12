@@ -94,7 +94,7 @@ export function FilterBar({ filters, onFiltersChange, options }: FilterBarProps)
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4 rounded-2xl border border-border/50 bg-muted/25 p-4 shadow-inner dark:bg-muted/15">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1 mr-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />

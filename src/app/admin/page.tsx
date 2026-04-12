@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
 import { useLocale } from "@/lib/locale-context";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,7 @@ const PERM_LABEL: Record<string, TranslationKey> = {
   edit_workspace: "permEditWorkspace",
   access_online_orders: "permAccessOnlineOrders",
   manage_users: "permManageUsers",
+  assign_sales_driver: "permAssignSalesDriver",
 };
 
 export default function AdminPage() {
@@ -308,27 +310,28 @@ export default function AdminPage() {
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
-      <div className="relative mx-auto max-w-6xl px-6 pb-10 pt-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("adminUsers")}</h1>
-          <p className="text-muted-foreground text-sm mt-1">{t("adminPageDesc")}</p>
-        </div>
+      <div className="relative mx-auto max-w-6xl space-y-8 px-6 pb-10 pt-6">
+        <PageHeader title={t("adminUsers")} description={t("adminPageDesc")} />
 
         {message && (
-          <p className="text-sm text-muted-foreground border border-border rounded-md px-3 py-2 bg-muted/30">
+          <p className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             {message}
           </p>
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p className="text-sm font-medium text-destructive">{error}</p>}
 
         <Tabs defaultValue="users" className="w-full">
-          <TabsList>
-            <TabsTrigger value="users">{t("adminTabUsers")}</TabsTrigger>
-            <TabsTrigger value="roles">{t("adminTabRoles")}</TabsTrigger>
+          <TabsList className="h-11 w-full max-w-md rounded-2xl border border-border/50 bg-muted/25 p-1 dark:bg-muted/15">
+            <TabsTrigger value="users" className="rounded-xl">
+              {t("adminTabUsers")}
+            </TabsTrigger>
+            <TabsTrigger value="roles" className="rounded-xl">
+              {t("adminTabRoles")}
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="users" className="mt-4 space-y-6">
-            <Card className="p-4 border-border/80 space-y-3">
+          <TabsContent value="users" className="mt-6 space-y-6">
+            <Card className="space-y-4 border-border/60 p-5">
               <h2 className="text-sm font-semibold">{t("adminAddUser")}</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input
@@ -369,7 +372,7 @@ export default function AdminPage() {
               </Button>
             </Card>
 
-            <Card className="border-border/80 overflow-hidden">
+            <Card className="overflow-hidden border-border/60">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -409,8 +412,8 @@ export default function AdminPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="roles" className="mt-4 space-y-4">
-            <Card className="p-4 border-border/80 space-y-3">
+          <TabsContent value="roles" className="mt-6 space-y-4">
+            <Card className="space-y-4 border-border/60 p-5">
               <h2 className="text-sm font-semibold">{t("adminCreateRole")}</h2>
               <Input
                 placeholder={t("adminRoleName")}
@@ -441,7 +444,7 @@ export default function AdminPage() {
               const d = roleDrafts[r.id];
               if (!d) return null;
               return (
-                <Card key={r.id} className="p-4 border-border/80 space-y-3">
+                <Card key={r.id} className="space-y-4 border-border/60 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Input
                       className="max-w-xs font-medium"

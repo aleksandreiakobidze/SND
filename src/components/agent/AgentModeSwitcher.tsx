@@ -28,7 +28,7 @@ export function AgentModeSwitcher({ mode, onChange, className }: Props) {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "inline-flex h-9 items-center gap-2 rounded-full border border-border/80 bg-muted/40 px-3 text-sm font-medium shadow-sm outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex h-10 items-center gap-2 rounded-xl border border-border/70 bg-muted/40 px-3.5 text-sm font-semibold shadow-inner outline-none transition-colors hover:bg-muted/65 focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/25",
           className,
         )}
       >

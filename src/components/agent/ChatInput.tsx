@@ -37,9 +37,9 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
   }
 
   return (
-    <div className="border-t border-border bg-background p-4">
-      <div className="max-w-4xl mx-auto flex items-end gap-3">
-        <div className="flex-1 relative">
+    <div className="border-t border-border/60 bg-background/95 p-4 pb-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80">
+      <div className="mx-auto flex max-w-4xl items-end gap-3">
+        <div className="relative flex-1">
           <textarea
             ref={textareaRef}
             value={input}
@@ -53,14 +53,14 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
             placeholder={ph}
             disabled={disabled}
             rows={1}
-            className="w-full resize-none rounded-xl border border-input bg-muted/30 px-4 py-3 pr-12 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-50"
+            className="w-full resize-none rounded-2xl border border-border/80 bg-muted/40 px-4 py-3.5 pr-12 text-sm shadow-inner transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 dark:bg-muted/25"
           />
         </div>
         <Button
           onClick={handleSubmit}
           disabled={disabled || !input.trim()}
           size="icon"
-          className="h-11 w-11 rounded-xl shrink-0"
+          className="h-12 w-12 shrink-0 rounded-2xl shadow-md shadow-primary/15"
         >
           {disabled ? (
             <Loader2 className="h-4 w-4 animate-spin" />

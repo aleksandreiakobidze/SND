@@ -1,6 +1,7 @@
 import {
   hasPermission,
   PERMISSION_ACCESS_ONLINE_ORDERS,
+  PERMISSION_ASSIGN_SALES_DRIVER,
   PERMISSION_EDIT_WORKSPACE,
   PERMISSION_MANAGE_USERS,
   PERMISSION_USE_AGENT,
@@ -25,6 +26,11 @@ export function canAccessOnlineOrders(permissions: string[]): boolean {
 /** Dashboard + report pages + read-only workspace (GET) */
 export function canViewDashboard(permissions: string[]): boolean {
   return hasPermission(permissions, PERMISSION_VIEW_DASHBOARD);
+}
+
+/** Sales map: assign driver (IdMdz) on RealViewAgent */
+export function canAssignSalesDriver(permissions: string[]): boolean {
+  return hasPermission(permissions, PERMISSION_ASSIGN_SALES_DRIVER);
 }
 
 /** Admin: users + roles CRUD */

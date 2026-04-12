@@ -4,6 +4,8 @@ export const PERMISSION_USE_AGENT = "use_agent";
 export const PERMISSION_EDIT_WORKSPACE = "edit_workspace";
 export const PERMISSION_ACCESS_ONLINE_ORDERS = "access_online_orders";
 export const PERMISSION_MANAGE_USERS = "manage_users";
+/** RealViewAgent IdMdz bulk update from /sales-map */
+export const PERMISSION_ASSIGN_SALES_DRIVER = "assign_sales_driver";
 
 export const ALL_PERMISSION_KEYS = [
   PERMISSION_VIEW_DASHBOARD,
@@ -11,6 +13,7 @@ export const ALL_PERMISSION_KEYS = [
   PERMISSION_EDIT_WORKSPACE,
   PERMISSION_ACCESS_ONLINE_ORDERS,
   PERMISSION_MANAGE_USERS,
+  PERMISSION_ASSIGN_SALES_DRIVER,
 ] as const;
 
 export type PermissionKey = (typeof ALL_PERMISSION_KEYS)[number];
@@ -35,6 +38,7 @@ export function legacyPermissionsFromRoleNames(roleNames: string[]): string[] {
       set.add(PERMISSION_USE_AGENT);
       set.add(PERMISSION_EDIT_WORKSPACE);
       set.add(PERMISSION_ACCESS_ONLINE_ORDERS);
+      set.add(PERMISSION_ASSIGN_SALES_DRIVER);
     } else if (n === "viewer") {
       set.add(PERMISSION_VIEW_DASHBOARD);
     } else if (n === "operator") {

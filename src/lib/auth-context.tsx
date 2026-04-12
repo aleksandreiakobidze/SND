@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   canAccessOnlineOrders,
+  canAssignSalesDriver,
   canManageUsers,
   canUseAgent,
   canViewDashboard,
@@ -91,6 +92,7 @@ export function useAuthCapabilities(permissions: string[]) {
       canUseAgent: canUseAgent(permissions),
       canAccessOnlineOrders: canAccessOnlineOrders(permissions),
       canManageUsers: canManageUsers(permissions),
+      canAssignSalesDriver: canAssignSalesDriver(permissions),
     }),
     [permissions],
   );

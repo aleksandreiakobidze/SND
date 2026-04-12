@@ -6,6 +6,8 @@ import { sqlIdent } from "@/lib/online-columns";
  */
 export const RVA_DEFAULTS = {
   IDREAL1: "IdReal1",
+  /** Line id (detail row) — unique per product line within a header */
+  IDREAL2: "IdReal2",
   IDORG: "IdOrg",
   DATA: "Data",
   TANXA: "Tanxa",
@@ -33,6 +35,17 @@ export const RVA_DEFAULTS = {
   /** Total liters / volume on the line — use for "sales by liters", ლიტრები, მოცულობით */
   TEVADOBATOTAL: "TevadobaTotal",
   TEVADOBA: "Tevadoba",
+  /** Line weight (gross total); sales map selection sums this as total weight */
+  BRUTOTOTAL: "BrutoTotal",
+  /** Driver (მძროლი) — smallint FK; aligns with SndApp_DriverTable.IdMdz */
+  IDMDZ: "IdMdz",
+  /** Driver name (nvarchar); filled from SndApp_DriverTable.Mdz on sales-map assign */
+  MDZ: "Mdz",
+  /**
+   * Delivery / driver assignment flag: **0** = assigned, **1** = not assigned (unassigned).
+   * Sales-map assign sets this to **0** together with IdMdz/Mdz.
+   */
+  MICODEBA: "Micodeba",
 } as const;
 
 export type RvaKey = keyof typeof RVA_DEFAULTS;

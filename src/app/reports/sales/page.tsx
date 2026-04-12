@@ -14,6 +14,7 @@ import { FilterBar } from "@/components/filters/FilterBar";
 import { StickyFilterBlock } from "@/components/filters/StickyFilterBlock";
 import { CrossFilterChips } from "@/components/filters/CrossFilterChips";
 import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -54,18 +55,13 @@ export default function SalesReportPage() {
       <PageGradientBackdrop />
       <div className="relative mx-auto max-w-[1600px] px-6 pb-8">
       <StickyFilterBlock className={cn(stickyFilterGlassClass, "pt-6")}>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("salesByRegion")}</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {t("salesPageDesc")}
-          </p>
-        </div>
+        <PageHeader title={t("salesByRegion")} description={t("salesPageDesc")} />
 
         <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
         <CrossFilterChips crossFilters={crossFilters} onRemove={removeCrossFilter} onClearAll={clearAllCrossFilters} />
       </StickyFilterBlock>
 
-      <div className="space-y-6 pt-6">
+      <div className="animate-fade-in space-y-8 pt-8">
       <ChartWrapper
         title={t("revenueByRegion")}
         loading={loading}

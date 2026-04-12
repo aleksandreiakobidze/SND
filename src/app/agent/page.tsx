@@ -310,28 +310,34 @@ function AgentPageContent() {
   return (
     <div className="relative flex h-[calc(100vh-4rem)] flex-col">
       <PageGradientBackdrop />
-      <div className="relative flex flex-col gap-3 border-b border-border/80 bg-background/75 px-6 py-3 backdrop-blur-sm sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+      <div className="relative flex flex-col gap-4 border-b border-border/50 bg-background/80 px-5 py-4 backdrop-blur-xl supports-[backdrop-filter]:bg-background/65 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
           {showModeSwitcher ? (
             <AgentModeSwitcher mode={mode} onChange={setMode} className="shrink-0" />
           ) : null}
           <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-lg font-semibold">
+            <h1 className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
               {mode === "ask" ? (
-                <Sparkles className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-400" />
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 to-chart-4/15 text-violet-600 dark:text-violet-400">
+                  <Sparkles className="h-5 w-5 shrink-0" />
+                </span>
               ) : (
-                <Bot className="h-5 w-5 shrink-0 text-primary" />
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                  <Bot className="h-5 w-5 shrink-0" />
+                </span>
               )}
-              {title}
+              <span>{title}</span>
             </h1>
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              {subtitle}
+            </p>
           </div>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handleNewChat}
-          className="h-8 shrink-0 self-start"
+          className="h-9 shrink-0 self-start rounded-xl border-border/70 sm:self-center"
         >
           <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
           {t("newChat")}
@@ -341,23 +347,25 @@ function AgentPageContent() {
       {mode === "agent" && canUseAgent ? <AgentHintsPanel /> : null}
 
       {mode === "ask" && canViewDashboard ? (
-        <StickyFilterBlock className={cn(stickyFilterGlassClass, "border-b py-3")}>
-          <p className="text-xs text-muted-foreground">{t("analyticsCoachContextHint")}</p>
+        <StickyFilterBlock className={cn(stickyFilterGlassClass, "border-b py-4")}>
+          <p className="text-xs font-medium leading-relaxed text-muted-foreground">
+            {t("analyticsCoachContextHint")}
+          </p>
           <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
         </StickyFilterBlock>
       ) : null}
 
       <div className="flex-1 overflow-hidden">
         <div ref={scrollRef} className="h-full overflow-y-auto">
-          <div className="mx-auto max-w-4xl space-y-6 p-6">
+          <div className="mx-auto max-w-4xl space-y-6 p-6 pb-8">
             {mode === "agent" ? (
               <>
                 {agentMessages.length === 0 ? (
                   <div className="flex min-h-[50vh] flex-col items-center justify-center space-y-8">
-                    <div className="space-y-2 text-center">
-                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                    <div className="space-y-3 text-center">
+                      <div className="mx-auto mb-2 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-chart-2/10 shadow-inner ring-1 ring-primary/10">
                         <svg
-                          className="h-8 w-8 text-primary"
+                          className="h-9 w-9 text-primary"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
@@ -366,8 +374,8 @@ function AgentPageContent() {
                           <path d="M12 2a4 4 0 0 1 4 4v1a1 1 0 0 0 1 1h1a4 4 0 0 1 0 8h-1a1 1 0 0 0-1 1v1a4 4 0 0 1-8 0v-1a1 1 0 0 0-1-1H6a4 4 0 0 1 0-8h1a1 1 0 0 0 1-1V6a4 4 0 0 1 4-4z" />
                         </svg>
                       </div>
-                      <h2 className="text-xl font-semibold">{t("aiAgent")}</h2>
-                      <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                      <h2 className="text-2xl font-semibold tracking-tight">{t("aiAgent")}</h2>
+                      <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground">
                         {t("agentSubtitle")}
                       </p>
                     </div>
@@ -395,12 +403,12 @@ function AgentPageContent() {
               <>
                 {coachMessages.length === 0 ? (
                   <div className="flex min-h-[40vh] flex-col items-center justify-center space-y-8">
-                    <div className="space-y-2 text-center">
-                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10">
-                        <Sparkles className="h-8 w-8 text-violet-600 dark:text-violet-400" />
+                    <div className="space-y-3 text-center">
+                      <div className="mx-auto mb-2 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-violet-500/20 to-chart-4/10 shadow-inner ring-1 ring-violet-500/20">
+                        <Sparkles className="h-9 w-9 text-violet-600 dark:text-violet-400" />
                       </div>
-                      <h2 className="text-xl font-semibold">{t("sndAnalyticsCoach")}</h2>
-                      <p className="mx-auto max-w-lg text-sm text-muted-foreground">
+                      <h2 className="text-2xl font-semibold tracking-tight">{t("sndAnalyticsCoach")}</h2>
+                      <p className="mx-auto max-w-lg text-sm leading-relaxed text-muted-foreground">
                         {t("analyticsCoachWelcome")}
                       </p>
                     </div>

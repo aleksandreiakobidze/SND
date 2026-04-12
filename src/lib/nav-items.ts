@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   Smartphone,
   Shield,
+  MapPin,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n";
 
@@ -28,25 +29,24 @@ export type SidebarNavItemDef = {
   groupId: string;
 };
 
-/** Logical sections: overview → workspace → sales → orders → agent */
+/** Logical sections: overview (incl. reports + online orders) → workspace → agent → administration */
 export const SIDEBAR_NAV_GROUPS: NavGroupDef[] = [
   { id: "overview", labelKey: "navGroupOverview", order: 0 },
   { id: "workspace", labelKey: "navGroupWorkspace", order: 1 },
-  { id: "sales", labelKey: "navGroupSales", order: 2 },
-  { id: "orders", labelKey: "navGroupOrders", order: 3 },
-  { id: "agent", labelKey: "navGroupAgent", order: 4 },
-  { id: "admin", labelKey: "navGroupAdmin", order: 5 },
+  { id: "agent", labelKey: "navGroupAgent", order: 2 },
+  { id: "admin", labelKey: "navGroupAdmin", order: 3 },
 ];
 
 export const SIDEBAR_NAV_ITEMS: SidebarNavItemDef[] = [
   { id: "dashboard", groupId: "overview", href: "/", labelKey: "dashboard", icon: LayoutDashboard },
+  { id: "sales", groupId: "overview", href: "/reports/sales", labelKey: "salesByRegion", icon: BarChart3 },
+  { id: "products", groupId: "overview", href: "/reports/products", labelKey: "products", icon: Package },
+  { id: "personnel", groupId: "overview", href: "/reports/personnel", labelKey: "personnel", icon: Users },
+  { id: "customers", groupId: "overview", href: "/reports/customers", labelKey: "customers", icon: ShoppingCart },
+  { id: "online-orders", groupId: "overview", href: "/online-orders", labelKey: "onlineOrders", icon: Smartphone },
   { id: "workspace", groupId: "workspace", href: "/workspace", labelKey: "myWorkspace", icon: LayoutGrid },
-  { id: "sales", groupId: "sales", href: "/reports/sales", labelKey: "salesByRegion", icon: BarChart3 },
-  { id: "products", groupId: "sales", href: "/reports/products", labelKey: "products", icon: Package },
-  { id: "personnel", groupId: "sales", href: "/reports/personnel", labelKey: "personnel", icon: Users },
-  { id: "customers", groupId: "sales", href: "/reports/customers", labelKey: "customers", icon: ShoppingCart },
-  { id: "online-orders", groupId: "orders", href: "/online-orders", labelKey: "onlineOrders", icon: Smartphone },
   { id: "agent", groupId: "agent", href: "/agent", labelKey: "aiAgent", icon: Bot },
+  { id: "sales-map", groupId: "admin", href: "/sales-map", labelKey: "salesMap", icon: MapPin },
   { id: "admin-users", groupId: "admin", href: "/admin", labelKey: "adminUsers", icon: Shield },
 ];
 

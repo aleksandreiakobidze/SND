@@ -3,10 +3,12 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { BarChart3, Bot, Sparkles, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/lib/locale-context";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
+import { cn } from "@/lib/utils";
 
 function LoginForm() {
   const { t } = useLocale();
@@ -97,87 +99,133 @@ function LoginForm() {
     }
   }
 
+  const features = [
+    { icon: BarChart3, label: t("dashboard") },
+    { icon: Sparkles, label: t("sndAnalyticsCoach") },
+    { icon: Bot, label: t("aiAgent") },
+    { icon: TrendingUp, label: t("reports") },
+  ];
+
   return (
-    <div className="relative flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center p-6">
-      <PageGradientBackdrop />
-      <div className="relative w-full max-w-md space-y-6 rounded-xl border border-border bg-card/80 p-8 shadow-lg backdrop-blur-sm">
-        <div className="space-y-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">{t("appName")}</h1>
-          <p className="text-sm text-muted-foreground">{t("loginSubtitle")}</p>
+    <div className="relative grid min-h-full lg:min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:grid-cols-[minmax(0,1.1fr)_minmax(0,28rem)]">
+      <PageGradientBackdrop className="h-full lg:h-screen" />
+      <div className="relative hidden flex-col justify-between overflow-hidden border-border/50 bg-gradient-to-br from-primary/[0.12] via-background to-chart-2/[0.08] px-10 py-12 lg:flex xl:px-14">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_20%_-10%,oklch(0.55_0.2_265/0.25),transparent)]" />
+        <div className="relative space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">{t("appName")}</p>
+          <h2 className="max-w-md text-3xl font-semibold leading-tight tracking-tight text-foreground xl:text-4xl">
+            {t("loginSubtitle")}
+          </h2>
         </div>
-
-        {allowRegister && (
-          <div className="flex rounded-lg border border-border p-0.5 bg-muted/40">
-            <button
-              type="button"
-              className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-                mode === "login" ? "bg-background shadow-sm" : "text-muted-foreground"
-              }`}
-              onClick={() => setMode("login")}
+        <ul className="relative mt-12 grid gap-3 sm:grid-cols-2">
+          {features.map(({ icon: Icon, label }) => (
+            <li
+              key={label}
+              className="flex items-center gap-3 rounded-2xl border border-border/50 bg-background/60 px-4 py-3 text-sm font-medium text-foreground shadow-sm backdrop-blur-md dark:bg-card/40"
             >
-              {t("loginAction")}
-            </button>
-            <button
-              type="button"
-              className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
-                mode === "register" ? "bg-background shadow-sm" : "text-muted-foreground"
-              }`}
-              onClick={() => setMode("register")}
-            >
-              {t("registerAction")}
-            </button>
-          </div>
-        )}
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Icon className="h-5 w-5" />
+              </span>
+              {label}
+            </li>
+          ))}
+        </ul>
+      </div>
 
-        <form
-          className="space-y-4"
-          onSubmit={mode === "login" ? submitLogin : submitRegister}
+      <div className="relative flex min-h-[calc(100vh-0px)] flex-col items-center justify-center p-6 sm:p-10">
+        <div
+          className={cn(
+            "w-full max-w-md space-y-8 rounded-3xl border border-border/60 bg-card/90 p-8 shadow-2xl shadow-black/10 backdrop-blur-xl",
+            "dark:bg-card/80 dark:shadow-black/40",
+          )}
         >
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("email")}</label>
-            <Input
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="h-10"
-            />
+          <div className="space-y-2 text-center lg:text-left">
+            <h1 className="text-2xl font-semibold tracking-tight">{t("appName")}</h1>
+            <p className="text-sm text-muted-foreground">{t("loginSubtitle")}</p>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t("password")}</label>
-            <Input
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={mode === "register" ? 8 : undefined}
-              className="h-10"
-            />
-          </div>
-          {mode === "register" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("displayNameOptional")}</label>
-              <Input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="h-10"
-              />
+
+          {allowRegister && (
+            <div className="flex rounded-2xl border border-border/70 bg-muted/40 p-1 dark:bg-muted/20">
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
+                  mode === "login"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setMode("login")}
+              >
+                {t("loginAction")}
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
+                  mode === "register"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setMode("register")}
+              >
+                {t("registerAction")}
+              </button>
             </div>
           )}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t("loading") : mode === "login" ? t("loginAction") : t("registerAction")}
-          </Button>
-        </form>
 
-        <p className="text-center text-xs text-muted-foreground">
-          <Link href="/" className="text-primary hover:underline">
-            {t("backToHome")}
-          </Link>
-        </p>
+          <form className="space-y-5" onSubmit={mode === "login" ? submitLogin : submitRegister}>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("email")}
+              </label>
+              <Input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="h-11 rounded-xl border-border/80 bg-muted/30 shadow-inner dark:bg-muted/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("password")}
+              </label>
+              <Input
+                type="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={mode === "register" ? 8 : undefined}
+                className="h-11 rounded-xl border-border/80 bg-muted/30 shadow-inner dark:bg-muted/20"
+              />
+            </div>
+            {mode === "register" && (
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("displayNameOptional")}
+                </label>
+                <Input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="h-11 rounded-xl border-border/80 bg-muted/30 shadow-inner dark:bg-muted/20"
+                />
+              </div>
+            )}
+            {error ? <p className="text-sm font-medium text-destructive">{error}</p> : null}
+            <Button type="submit" className="h-11 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/20" disabled={loading}>
+              {loading ? t("loading") : mode === "login" ? t("loginAction") : t("registerAction")}
+            </Button>
+          </form>
+
+          <p className="text-center text-xs text-muted-foreground">
+            <Link href="/" className="font-medium text-primary underline-offset-4 hover:underline">
+              {t("backToHome")}
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -185,7 +233,11 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center">…</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">…</div>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

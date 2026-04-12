@@ -18,6 +18,12 @@ export type OnlineColumnMap = {
   prodT: string | null;
   realT: string | null;
   prodCode: string | null;
+  /** Map: customer / drop latitude — optional on staging view */
+  lat: string | null;
+  /** Map: customer / drop longitude */
+  lon: string | null;
+  /** Liters per line (e.g. TevadobaTotal) — summed per order header */
+  liters: string | null;
 };
 
 /** Safe bracket-quoted identifier for SQL Server ([name]). */

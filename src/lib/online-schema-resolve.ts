@@ -32,6 +32,9 @@ const CANDIDATES: Record<keyof OnlineColumnMap, string[]> = {
   prodT: ["ProdT", "Brand", "ProductBrand"],
   realT: ["RealT", "SalesCategory", "PaymentType", "PayType"],
   prodCode: ["ProdCode", "ProductCode", "Sku", "ItemCode"],
+  lat: ["Lat", "Latitude", "GeoLat", "Y", "CustomerLat"],
+  lon: ["Lon", "Lng", "Longitude", "GeoLon", "X", "CustomerLon"],
+  liters: ["TevadobaTotal", "Liters", "Litr", "VolumeL", "QtyLiters", "Tevadoba"],
 };
 
 /** Must exist for list aggregate + transfer validation. */
@@ -69,7 +72,12 @@ const ENV_KEYS: Record<keyof OnlineColumnMap, string> = {
   prodT: "MSSQL_ONLINE_COL_PRODT",
   realT: "MSSQL_ONLINE_COL_REALT",
   prodCode: "MSSQL_ONLINE_COL_PRODCODE",
+  lat: "MSSQL_ONLINE_COL_LAT",
+  lon: "MSSQL_ONLINE_COL_LON",
+  liters: "MSSQL_ONLINE_COL_LITERS",
 };
+
+const MAP_OPTIONAL_KEYS: (keyof OnlineColumnMap)[] = ["lat", "lon", "liters"];
 
 function envOverride(envKey: string): string | undefined {
   const raw = process.env[envKey];
@@ -197,6 +205,29 @@ export async function resolveOnlineColumnMap(): Promise<OnlineColumnMap> {
         );
       }
       map[key] = found;
+    } else {
+      try {
+        (map as Record<keyof OnlineColumnMap, string | null>)[key] = pickColumn(
+          available,
+          CANDIDATES[key],
+          key
+        );
+      } catch {
+        (map as Record<keyof OnlineColumnMap, string | null>)[key] = null;
+      }
+    }
+  }
+
+  for (const key of MAP_OPTIONAL_KEYS) {
+    const envK = ENV_KEYS[key];
+    const ov = envOverride(envK);
+    if (ov) {
+      const found = [...available].find((a) => a.toLowerCase() === ov.toLowerCase());
+      if (!found) {
+        (map as Record<keyof OnlineColumnMap, string | null>)[key] = null;
+      } else {
+        (map as Record<keyof OnlineColumnMap, string | null>)[key] = found;
+      }
     } else {
       try {
         (map as Record<keyof OnlineColumnMap, string | null>)[key] = pickColumn(

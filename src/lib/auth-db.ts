@@ -324,8 +324,37 @@ export async function deleteRole(roleId: number): Promise<void> {
   await req.query(`DELETE FROM dbo.SndApp_Role WHERE Id = @rid`);
 }
 
+/**
+ * Ensures every app permission key exists in dbo.SndApp_Permission.
+ * INSERT ... SELECT inserts zero rows if the key is missing (no SQL error) — that made role saves look successful while dropping unchecked keys.
+ */
+async function assertPermissionRowsExist(
+  pool: sql.ConnectionPool,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const req = pool.request();
+  const placeholders = keys.map((_, i) => `@k${i}`).join(", ");
+  keys.forEach((k, i) => {
+    req.input(`k${i}`, sql.NVarChar(64), k);
+  });
+  const r = await req.query<{ Key: string }>(
+    `SELECT [Key] FROM dbo.SndApp_Permission WHERE [Key] IN (${placeholders})`,
+  );
+  const found = new Set(r.recordset.map((x) => x.Key));
+  const missing = keys.filter((k) => !found.has(k));
+  if (missing.length > 0) {
+    throw new Error(
+      `Permission row(s) missing in dbo.SndApp_Permission: ${missing.join(", ")}. ` +
+        `Run the latest scripts in scripts/migrations/ (e.g. 006-assign-sales-driver-permission.sql) on this database.`,
+    );
+  }
+}
+
 export async function setRolePermissionKeys(roleId: number, permissionKeys: string[]): Promise<void> {
   const pool = await getPool();
+  await assertPermissionRowsExist(pool, permissionKeys);
+
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
   try {
@@ -337,10 +366,16 @@ export async function setRolePermissionKeys(roleId: number, permissionKeys: stri
       const ins = new sql.Request(transaction);
       ins.input("rid", sql.Int, roleId);
       ins.input("pkey", sql.NVarChar(64), pk);
-      await ins.query(
+      const result = await ins.query(
         `INSERT INTO dbo.SndApp_RolePermission (RoleId, PermissionId)
          SELECT @rid, Id FROM dbo.SndApp_Permission WHERE [Key] = @pkey`,
       );
+      const affected = result.rowsAffected?.[0] ?? 0;
+      if (affected !== 1) {
+        throw new Error(
+          `Failed to link permission "${pk}" to role (expected 1 row, got ${affected}). Check dbo.SndApp_Permission.`,
+        );
+      }
     }
     await transaction.commit();
   } catch (e) {

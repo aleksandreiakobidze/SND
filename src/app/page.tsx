@@ -17,6 +17,7 @@ import { formatCurrency } from "@/lib/formatCurrency";
 import { formatLiters } from "@/lib/formatLiters";
 import type { ChartMeasure } from "@/components/charts/ChartWrapper";
 import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
@@ -41,11 +42,15 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="text-center space-y-3">
-          <p className="text-destructive font-medium">{t("error")}</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <button onClick={fetchDashboard} className="text-sm text-primary underline">
+      <div className="flex min-h-[50vh] items-center justify-center px-4">
+        <div className="glass-panel max-w-md space-y-4 p-8 text-center">
+          <p className="font-semibold text-destructive">{t("error")}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{error}</p>
+          <button
+            type="button"
+            onClick={fetchDashboard}
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
             {t("retry")}
           </button>
         </div>
@@ -58,17 +63,14 @@ export default function DashboardPage() {
       <PageGradientBackdrop />
       <div className="relative mx-auto max-w-[1600px] px-6 pb-6">
         <StickyFilterBlock className={cn(stickyFilterGlassClass, "pt-6")}>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("dashboard")}</h1>
-          <p className="text-muted-foreground text-sm mt-1">{t("dashboardDataCaption")}</p>
-        </div>
+        <PageHeader title={t("dashboard")} description={t("dashboardDataCaption")} />
 
         <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
         <CrossFilterChips crossFilters={crossFilters} onRemove={removeCrossFilter} onClearAll={clearAllCrossFilters} />
         </StickyFilterBlock>
 
-        <div className="space-y-6 pt-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="animate-fade-in space-y-8 pt-8">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             title={t("totalRevenue")}
             value={data ? formatCurrency(Number(data.kpis.totalRevenue)) : ""}
@@ -172,8 +174,8 @@ export default function DashboardPage() {
           )}
         </ChartWrapper>
 
-        <div>
-          <h2 className="text-lg font-semibold mb-3">{t("recentTransactions")}</h2>
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold tracking-tight">{t("recentTransactions")}</h2>
           {loading ? (
             <div className="h-64 bg-muted/30 rounded-lg animate-pulse" />
           ) : data ? (

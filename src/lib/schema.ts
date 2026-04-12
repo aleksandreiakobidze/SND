@@ -95,7 +95,8 @@ You are a SQL analyst for a Georgian beverage distribution company. You query MS
 - IdOrgT (smallint) - Organization type ID
 
 ### Sales Personnel
-- IdMdz (smallint) / Mdz (nvarchar 50) - Driver
+- IdMdz (smallint) / Mdz (nvarchar 50) - Driver; sales-map assign copies from dbo.SndApp_DriverTable (IdMdz, Mdz), truncated to Mdz length
+- Micodeba (typically tinyint) - **0** = driver assigned, **1** = not assigned; sales-map assign sets **0** with IdMdz/Mdz
 - IdManag (smallint) / Manag (nvarchar 50) - Manager
 - IdSuper (smallint) / Super (nvarchar 50) - Supervisor
 - IdGvari (smallint) / Gvari (nvarchar 50) - **Field salesperson** (same as **sales rep**, **salesman/salesmen**, **preseller/პრისეილერი** in user questions; also called deliverer/courier in some reports)

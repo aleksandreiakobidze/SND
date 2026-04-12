@@ -1,4 +1,6 @@
 import sql, { type ISqlType } from "mssql";
+import { rvaSql } from "@/lib/realview-columns";
+import { VIEW_NAME } from "@/lib/schema";
 
 /** App metadata: SndApp_*, sessions, workspaces. */
 export function getAppDatabaseName(): string {
@@ -169,4 +171,49 @@ export async function executeStoredProcedure(
     request.input(input.name, input.type, input.value);
   }
   return request.execute(procedureName);
+}
+
+const SALES_MAP_UPDATE_CHUNK = 200;
+
+const MDZ_NVARCHAR_LEN = 50;
+
+/**
+ * Sets driver IdMdz, Mdz, and Micodeba=0 on all RealViewAgent lines matching the given order headers.
+ * Mdz text is filled from SndApp_DriverTable.Mdz (name column; see driver-table-env.ts / MSSQL_DRIVER_COL_NAME).
+ * Micodeba: 0 = assigned, 1 = unassigned (ERP convention).
+ * Uses parameterized UPDATE only (no string-built identifiers for values).
+ */
+export async function executeSalesMapDriverUpdate(
+  idReal1List: number[],
+  driverId: number,
+  driverDisplayName: string,
+): Promise<void> {
+  const unique = [...new Set(idReal1List)].filter((n) => Number.isFinite(n) && n > 0);
+  if (unique.length === 0) return;
+
+  const trimmed = driverDisplayName.trim();
+  const mdzText = trimmed.slice(0, MDZ_NVARCHAR_LEN);
+
+  const idmdz = rvaSql("IDMDZ");
+  const mdzCol = rvaSql("MDZ");
+  const micodeba = rvaSql("MICODEBA");
+  const id1 = rvaSql("IDREAL1");
+  const pool = await getAnalyticsPool();
+
+  for (let i = 0; i < unique.length; i += SALES_MAP_UPDATE_CHUNK) {
+    const chunk = unique.slice(i, i + SALES_MAP_UPDATE_CHUNK);
+    const req = pool.request();
+    req.input("driverId", sql.Int, driverId);
+    req.input("mdzText", sql.NVarChar(MDZ_NVARCHAR_LEN), mdzText);
+    req.input("micodebaAssigned", sql.TinyInt, 0);
+    const placeholders: string[] = [];
+    chunk.forEach((id, idx) => {
+      const name = `id${idx}`;
+      req.input(name, sql.Int, id);
+      placeholders.push(`@${name}`);
+    });
+    await req.query(
+      `UPDATE ${VIEW_NAME} SET ${idmdz} = @driverId, ${mdzCol} = @mdzText, ${micodeba} = @micodebaAssigned WHERE ${id1} IN (${placeholders.join(",")})`,
+    );
+  }
 }
