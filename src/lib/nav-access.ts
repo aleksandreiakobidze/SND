@@ -19,9 +19,7 @@ export function isNavItemVisible(item: SidebarNavItemDef, c: NavCapabilities): b
     case "workspace":
       return c.canViewDashboard;
     case "agent":
-      return c.canUseAgent;
-    case "analytics-coach":
-      return c.canViewDashboard;
+      return c.canUseAgent || c.canViewDashboard;
     case "online-orders":
       return c.canAccessOnlineOrders;
     case "admin-users":

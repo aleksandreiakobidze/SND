@@ -1,27 +1,78 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { RotateCcw } from "lucide-react";
+import { Suspense, useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Bot, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/agent/ChatMessage";
 import { ChatInput } from "@/components/agent/ChatInput";
 import { SuggestedQueries } from "@/components/agent/SuggestedQueries";
-import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
+import { AgentModeSwitcher, type AgentPageMode } from "@/components/agent/AgentModeSwitcher";
+import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
 import { AgentHintsPanel } from "@/components/agent/AgentHintsPanel";
 import { SaveToWorkspaceSheet } from "@/components/workspace/SaveToWorkspaceSheet";
+import {
+  AnalyticsCoachMessage,
+  type AnalyticsCoachMessageModel,
+} from "@/components/analytics-coach/AnalyticsCoachMessage";
+import { FilterBar } from "@/components/filters/FilterBar";
+import { StickyFilterBlock } from "@/components/filters/StickyFilterBlock";
 import { useLocale } from "@/lib/locale-context";
 import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
+import { useFilterOptions } from "@/lib/useFilterOptions";
+import { useFilters } from "@/lib/useFilters";
 import type { AgentMessage, AgentResponse } from "@/types";
+import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
-export default function AgentPage() {
+function AgentPageFallback() {
+  return (
+    <div className="relative flex h-[calc(100vh-4rem)] flex-col">
+      <PageGradientBackdrop />
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+        <Skeleton className="h-8 w-56 rounded-md" />
+        <Skeleton className="h-32 w-full max-w-2xl rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+function AgentPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t, locale } = useLocale();
   const { permissions, loading: authLoading } = useAuth();
-  const { canUseAgent } = useAuthCapabilities(permissions);
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastSuggestions, setLastSuggestions] = useState<string[]>([]);
+  const { canUseAgent, canViewDashboard } = useAuthCapabilities(permissions);
+
+  const canAccessPage = canUseAgent || canViewDashboard;
+  const showModeSwitcher = canUseAgent && canViewDashboard;
+
+  const urlMode: AgentPageMode =
+    searchParams.get("mode") === "ask" ? "ask" : "agent";
+  const mode: AgentPageMode = useMemo(() => {
+    if (!canUseAgent && canViewDashboard) return "ask";
+    if (canUseAgent && !canViewDashboard) return "agent";
+    return urlMode;
+  }, [canUseAgent, canViewDashboard, urlMode]);
+
+  const setMode = useCallback(
+    (next: AgentPageMode) => {
+      router.replace(next === "ask" ? "/agent?mode=ask" : "/agent");
+    },
+    [router],
+  );
+
+  const filterOptions = useFilterOptions();
+  const { filters, ready, handleFiltersChange } = useFilters();
+
+  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentSuggestions, setAgentSuggestions] = useState<string[]>([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+
+  const [coachMessages, setCoachMessages] = useState<AnalyticsCoachMessageModel[]>([]);
+  const [coachSuggestions, setCoachSuggestions] = useState<string[]>([]);
+  const [coachLoading, setCoachLoading] = useState(false);
+
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTarget, setSaveTarget] = useState<AgentMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -34,13 +85,13 @@ export default function AgentPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [agentMessages, coachMessages, mode, scrollToBottom]);
 
   useEffect(() => {
-    if (!authLoading && !canUseAgent) router.replace("/");
-  }, [authLoading, canUseAgent, router]);
+    if (!authLoading && !canAccessPage) router.replace("/");
+  }, [authLoading, canAccessPage, router]);
 
-  async function handleSend(question: string) {
+  async function handleSendAgent(question: string) {
     const userMessage: AgentMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -56,11 +107,11 @@ export default function AgentPage() {
       loading: true,
     };
 
-    setMessages((prev) => [...prev, userMessage, loadingMessage]);
-    setIsLoading(true);
+    setAgentMessages((prev) => [...prev, userMessage, loadingMessage]);
+    setAgentLoading(true);
 
     try {
-      const conversationHistory = messages
+      const conversationHistory = agentMessages
         .filter((m) => !m.loading)
         .map((m) => ({
           role: m.role as "user" | "assistant",
@@ -93,8 +144,8 @@ export default function AgentPage() {
             : json.error,
           timestamp: new Date(),
         };
-        setMessages((prev) =>
-          prev.filter((m) => !m.loading).concat(errorMessage)
+        setAgentMessages((prev) =>
+          prev.filter((m) => !m.loading).concat(errorMessage),
         );
         return;
       }
@@ -112,10 +163,10 @@ export default function AgentPage() {
         timestamp: new Date(),
       };
 
-      setMessages((prev) =>
-        prev.filter((m) => !m.loading).concat(assistantMessage)
+      setAgentMessages((prev) =>
+        prev.filter((m) => !m.loading).concat(assistantMessage),
       );
-      setLastSuggestions(response.suggestedQuestions || []);
+      setAgentSuggestions(response.suggestedQuestions || []);
     } catch (err) {
       const errorMessage: AgentMessage = {
         id: `error-${Date.now()}`,
@@ -125,24 +176,111 @@ export default function AgentPage() {
           err instanceof Error ? err.message : "Network error occurred",
         timestamp: new Date(),
       };
-      setMessages((prev) =>
-        prev.filter((m) => !m.loading).concat(errorMessage)
+      setAgentMessages((prev) =>
+        prev.filter((m) => !m.loading).concat(errorMessage),
       );
     } finally {
-      setIsLoading(false);
+      setAgentLoading(false);
+    }
+  }
+
+  async function handleSendCoach(text: string) {
+    const userMessage: AnalyticsCoachMessageModel = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: text,
+    };
+    const loadingMessage: AnalyticsCoachMessageModel = {
+      id: `loading-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      loading: true,
+    };
+
+    setCoachMessages((prev) => [...prev, userMessage, loadingMessage]);
+    setCoachLoading(true);
+
+    const history = coachMessages
+      .filter((m) => !m.loading)
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+
+    try {
+      const res = await fetch("/api/analytics-chat", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: history.slice(-10),
+          locale,
+          filters: ready ? filters : undefined,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        const errText =
+          typeof json.details === "string"
+            ? json.details
+            : typeof json.error === "string"
+              ? json.error
+              : t("error");
+        const errMsg: AnalyticsCoachMessageModel = {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          content: `**${t("error")}**\n\n${errText}`,
+        };
+        setCoachMessages((prev) => prev.filter((m) => !m.loading).concat(errMsg));
+        setCoachSuggestions([]);
+        return;
+      }
+
+      const assistantMessage: AnalyticsCoachMessageModel = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: typeof json.reply === "string" ? json.reply : "",
+      };
+
+      setCoachMessages((prev) =>
+        prev.filter((m) => !m.loading).concat(assistantMessage),
+      );
+      setCoachSuggestions(
+        Array.isArray(json.suggestions)
+          ? json.suggestions.filter((s: unknown) => typeof s === "string")
+          : [],
+      );
+    } catch {
+      const errMsg: AnalyticsCoachMessageModel = {
+        id: `err-${Date.now()}`,
+        role: "assistant",
+        content: `**${t("error")}**\n\n${t("analyticsCoachNetworkError")}`,
+      };
+      setCoachMessages((prev) => prev.filter((m) => !m.loading).concat(errMsg));
+      setCoachSuggestions([]);
+    } finally {
+      setCoachLoading(false);
     }
   }
 
   function handleNewChat() {
-    setMessages([]);
-    setLastSuggestions([]);
+    if (mode === "agent") {
+      setAgentMessages([]);
+      setAgentSuggestions([]);
+    } else {
+      setCoachMessages([]);
+      setCoachSuggestions([]);
+    }
   }
 
   function promptBeforeAssistant(m: AgentMessage): string | undefined {
-    const idx = messages.findIndex((x) => x.id === m.id);
+    const idx = agentMessages.findIndex((x) => x.id === m.id);
     if (idx <= 0) return undefined;
     for (let i = idx - 1; i >= 0; i--) {
-      if (messages[i].role === "user") return messages[i].content;
+      if (agentMessages[i].role === "user") return agentMessages[i].content;
     }
     return undefined;
   }
@@ -152,69 +290,139 @@ export default function AgentPage() {
     setSaveOpen(true);
   }
 
+  const starterCoachSuggestions = [
+    t("analyticsCoachSuggested1"),
+    t("analyticsCoachSuggested2"),
+    t("analyticsCoachSuggested3"),
+    t("analyticsCoachSuggested4"),
+    t("analyticsCoachSuggested5"),
+  ];
+
+  const title =
+    mode === "ask" ? t("sndAnalyticsCoach") : t("aiAgent");
+  const subtitle =
+    mode === "ask" ? t("sndAnalyticsCoachDesc") : t("agentHeaderDesc");
+
+  if (!canAccessPage && !authLoading) {
+    return null;
+  }
+
   return (
     <div className="relative flex h-[calc(100vh-4rem)] flex-col">
       <PageGradientBackdrop />
-      <div className="relative flex items-center justify-between border-b border-border/80 bg-background/75 px-6 py-3 backdrop-blur-sm">
-        <div>
-          <h1 className="text-lg font-semibold">{t("aiAgent")}</h1>
-          <p className="text-xs text-muted-foreground">
-            {t("agentHeaderDesc")}
-          </p>
+      <div className="relative flex flex-col gap-3 border-b border-border/80 bg-background/75 px-6 py-3 backdrop-blur-sm sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {showModeSwitcher ? (
+            <AgentModeSwitcher mode={mode} onChange={setMode} className="shrink-0" />
+          ) : null}
+          <div className="min-w-0">
+            <h1 className="flex items-center gap-2 text-lg font-semibold">
+              {mode === "ask" ? (
+                <Sparkles className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-400" />
+              ) : (
+                <Bot className="h-5 w-5 shrink-0 text-primary" />
+              )}
+              {title}
+            </h1>
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          </div>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={handleNewChat}
-          className="h-8"
+          className="h-8 shrink-0 self-start"
         >
-          <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
           {t("newChat")}
         </Button>
       </div>
 
-      {canUseAgent ? <AgentHintsPanel /> : null}
+      {mode === "agent" && canUseAgent ? <AgentHintsPanel /> : null}
+
+      {mode === "ask" && canViewDashboard ? (
+        <StickyFilterBlock className={cn(stickyFilterGlassClass, "border-b py-3")}>
+          <p className="text-xs text-muted-foreground">{t("analyticsCoachContextHint")}</p>
+          <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
+        </StickyFilterBlock>
+      ) : null}
 
       <div className="flex-1 overflow-hidden">
         <div ref={scrollRef} className="h-full overflow-y-auto">
-          <div className="max-w-4xl mx-auto p-6 space-y-6">
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-8">
-                <div className="text-center space-y-2">
-                  <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                    <svg
-                      className="h-8 w-8 text-primary"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    >
-                      <path d="M12 2a4 4 0 0 1 4 4v1a1 1 0 0 0 1 1h1a4 4 0 0 1 0 8h-1a1 1 0 0 0-1 1v1a4 4 0 0 1-8 0v-1a1 1 0 0 0-1-1H6a4 4 0 0 1 0-8h1a1 1 0 0 0 1-1V6a4 4 0 0 1 4-4z" />
-                    </svg>
+          <div className="mx-auto max-w-4xl space-y-6 p-6">
+            {mode === "agent" ? (
+              <>
+                {agentMessages.length === 0 ? (
+                  <div className="flex min-h-[50vh] flex-col items-center justify-center space-y-8">
+                    <div className="space-y-2 text-center">
+                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                        <svg
+                          className="h-8 w-8 text-primary"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path d="M12 2a4 4 0 0 1 4 4v1a1 1 0 0 0 1 1h1a4 4 0 0 1 0 8h-1a1 1 0 0 0-1 1v1a4 4 0 0 1-8 0v-1a1 1 0 0 0-1-1H6a4 4 0 0 1 0-8h1a1 1 0 0 0 1-1V6a4 4 0 0 1 4-4z" />
+                        </svg>
+                      </div>
+                      <h2 className="text-xl font-semibold">{t("aiAgent")}</h2>
+                      <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                        {t("agentSubtitle")}
+                      </p>
+                    </div>
+                    <SuggestedQueries onSelect={handleSendAgent} />
                   </div>
-                  <h2 className="text-xl font-semibold">
-                    {t("aiAgent")}
-                  </h2>
-                  <p className="text-muted-foreground text-sm max-w-md">
-                    {t("agentSubtitle")}
-                  </p>
-                </div>
-                <SuggestedQueries onSelect={handleSend} />
-              </div>
+                ) : (
+                  <>
+                    {agentMessages.map((msg) => (
+                      <ChatMessage
+                        key={msg.id}
+                        message={msg}
+                        onSaveToWorkspace={openSaveToWorkspace}
+                      />
+                    ))}
+                    {!agentLoading && agentSuggestions.length > 0 && (
+                      <SuggestedQueries
+                        suggestions={agentSuggestions}
+                        onSelect={handleSendAgent}
+                      />
+                    )}
+                  </>
+                )}
+              </>
             ) : (
               <>
-                {messages.map((msg) => (
-                  <ChatMessage
-                    key={msg.id}
-                    message={msg}
-                    onSaveToWorkspace={openSaveToWorkspace}
-                  />
-                ))}
-                {!isLoading && lastSuggestions.length > 0 && (
-                  <SuggestedQueries
-                    suggestions={lastSuggestions}
-                    onSelect={handleSend}
-                  />
+                {coachMessages.length === 0 ? (
+                  <div className="flex min-h-[40vh] flex-col items-center justify-center space-y-8">
+                    <div className="space-y-2 text-center">
+                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10">
+                        <Sparkles className="h-8 w-8 text-violet-600 dark:text-violet-400" />
+                      </div>
+                      <h2 className="text-xl font-semibold">{t("sndAnalyticsCoach")}</h2>
+                      <p className="mx-auto max-w-lg text-sm text-muted-foreground">
+                        {t("analyticsCoachWelcome")}
+                      </p>
+                    </div>
+                    <SuggestedQueries
+                      suggestions={starterCoachSuggestions}
+                      onSelect={handleSendCoach}
+                      headingKey="coachSuggestedTitle"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {coachMessages.map((msg) => (
+                      <AnalyticsCoachMessage key={msg.id} message={msg} />
+                    ))}
+                    {!coachLoading && coachSuggestions.length > 0 && (
+                      <SuggestedQueries
+                        suggestions={coachSuggestions}
+                        onSelect={handleSendCoach}
+                        headingKey="coachSuggestedTitle"
+                      />
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -222,7 +430,15 @@ export default function AgentPage() {
         </div>
       </div>
 
-      <ChatInput onSend={handleSend} disabled={isLoading} />
+      {mode === "agent" ? (
+        <ChatInput onSend={handleSendAgent} disabled={agentLoading} />
+      ) : (
+        <ChatInput
+          onSend={handleSendCoach}
+          disabled={coachLoading || !ready}
+          placeholderKey="analyticsCoachPlaceholder"
+        />
+      )}
 
       <SaveToWorkspaceSheet
         open={saveOpen}
@@ -242,5 +458,13 @@ export default function AgentPage() {
         }}
       />
     </div>
+  );
+}
+
+export default function AgentPage() {
+  return (
+    <Suspense fallback={<AgentPageFallback />}>
+      <AgentPageContent />
+    </Suspense>
   );
 }

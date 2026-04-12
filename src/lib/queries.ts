@@ -77,6 +77,29 @@ export function buildDashboardQueries() {
     ORDER BY ${data}
   `,
 
+    /** Same date + cross-filters as dashboard; for analytics coach “top product in period” */
+    topProductsByRevenueInPeriod: `
+    SELECT TOP 25
+      ${idProd} as IdProd,
+      ${prod} as Product,
+      CAST(SUM(${tanxa}) as float) as Revenue,
+      CAST(SUM(${tevadobaTotal}) as float) as Liters
+    FROM RealViewAgent
+    GROUP BY ${idProd}, ${prod}
+    ORDER BY Revenue DESC
+  `,
+
+    topProductsByLitersInPeriod: `
+    SELECT TOP 25
+      ${idProd} as IdProd,
+      ${prod} as Product,
+      CAST(SUM(${tanxa}) as float) as Revenue,
+      CAST(SUM(${tevadobaTotal}) as float) as Liters
+    FROM RealViewAgent
+    GROUP BY ${idProd}, ${prod}
+    ORDER BY Liters DESC
+  `,
+
     /** Line-level rows for selected filters (date range + cross-filters); preseller = Gvari per schema */
     recentTransactions: `
     SELECT TOP 200

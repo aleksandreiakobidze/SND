@@ -63,6 +63,8 @@ export const translations = {
     workspaceConfirmDeleteSection: "Delete this section and all its reports?",
     workspaceConfirmDeleteReport: "Delete this saved report?",
     aiAgent: "SND Agent",
+    agentModeAgent: "Agent",
+    agentModeAsk: "Ask",
     sndAnalyticsCoach: "SND AI · Analytics",
     sndAnalyticsCoachDesc:
       "Coaching for your numbers: weak spots, priorities, and what to improve — based on your filters and KPI snapshot.",
@@ -297,6 +299,8 @@ export const translations = {
     workspaceConfirmDeleteSection: "წავშალო ეს სექცია ყველა რეპორტით?",
     workspaceConfirmDeleteReport: "წავშალო ეს შენახული რეპორტი?",
     aiAgent: "SND აგენტი",
+    agentModeAgent: "აგენტი",
+    agentModeAsk: "კითხვა",
     sndAnalyticsCoach: "SND AI · ანალიტიკა",
     sndAnalyticsCoachDesc:
       "რჩევები რიცხვებზე: სუსტი ადგილები, პრიორიტეტები და რა გავაუმჯობესოთ — ფილტრებისა და KPI სნეპშოტის მიხედვით.",

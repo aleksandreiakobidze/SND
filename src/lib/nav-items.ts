@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Bot,
-  Sparkles,
   BarChart3,
   Package,
   Users,
@@ -48,13 +47,6 @@ export const SIDEBAR_NAV_ITEMS: SidebarNavItemDef[] = [
   { id: "customers", groupId: "sales", href: "/reports/customers", labelKey: "customers", icon: ShoppingCart },
   { id: "online-orders", groupId: "orders", href: "/online-orders", labelKey: "onlineOrders", icon: Smartphone },
   { id: "agent", groupId: "agent", href: "/agent", labelKey: "aiAgent", icon: Bot },
-  {
-    id: "analytics-coach",
-    groupId: "agent",
-    href: "/analytics-chat",
-    labelKey: "sndAnalyticsCoach",
-    icon: Sparkles,
-  },
   { id: "admin-users", groupId: "admin", href: "/admin", labelKey: "adminUsers", icon: Shield },
 ];
 
