@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import sql from "mssql";
 import { getPool } from "@/lib/db";
+import { chartTypeFromJsonString, parseTagsJson, serializeTagsJson } from "@/lib/chart-config-meta";
 
 export type SavedReportSource = "agent" | "builtin";
 
@@ -10,6 +11,9 @@ export type WorkspaceTree = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  iconKey: string | null;
+  isPinned: boolean;
+  accentColor: string | null;
   sections: SectionTree[];
 };
 
@@ -19,6 +23,7 @@ export type SectionTree = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  colorKey: string | null;
   reports: SavedReportMeta[];
 };
 
@@ -30,9 +35,23 @@ export type SavedReportMeta = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  isFavorite: boolean;
+  isPinned: boolean;
+  lastOpenedAt: string | null;
+  openCount: number;
+  tags: string[];
+  chartType: string | null;
 };
 
-export type SavedReportFull = SavedReportMeta & {
+/** Full report row for GET /api/reports/:id (SQL + chart JSON); not every list meta field is required. */
+export type SavedReportFull = {
+  id: string;
+  title: string;
+  source: SavedReportSource;
+  narrative: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
   prompt: string | null;
   sqlText: string | null;
   chartConfigJson: string | null;
@@ -43,7 +62,23 @@ function rowDate(v: unknown): string {
   return String(v ?? "");
 }
 
-export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[]> {
+/** True when DB is missing migration 009 (or similar) extended columns. */
+function isMissingColumnSchemaError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/invalid column name|was not found|does not exist/i.test(msg)) return true;
+  const n = (e as { number?: number })?.number;
+  if (n === 207) return true;
+  const orig = (e as { originalError?: { number?: number; message?: string } })?.originalError;
+  if (orig?.number === 207) return true;
+  if (orig?.message && /invalid column name/i.test(orig.message)) return true;
+  return false;
+}
+
+/**
+ * Legacy tree load (pre–migration 009): only columns from 001 + 006.
+ * Used when BI metadata columns are not present yet.
+ */
+async function listWorkspaceTreeLegacy(ownerId: string): Promise<WorkspaceTree[]> {
   const pool = await getPool();
   const wReq = pool.request();
   wReq.input("ownerId", sql.UniqueIdentifier, ownerId);
@@ -68,6 +103,9 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
       sortOrder: row.SortOrder,
       createdAt: rowDate(row.CreatedAt),
       updatedAt: rowDate(row.UpdatedAt),
+      iconKey: null,
+      isPinned: false,
+      accentColor: null,
       sections: [],
     });
   }
@@ -103,6 +141,7 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
       sortOrder: row.SortOrder,
       createdAt: rowDate(row.CreatedAt),
       updatedAt: rowDate(row.UpdatedAt),
+      colorKey: null,
       reports: [],
     };
     const list = sectionByWs.get(row.WorkspaceId) ?? [];
@@ -149,6 +188,12 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
       sortOrder: row.SortOrder ?? 0,
       createdAt: rowDate(row.CreatedAt),
       updatedAt: rowDate(row.UpdatedAt),
+      isFavorite: false,
+      isPinned: false,
+      lastOpenedAt: null,
+      openCount: 0,
+      tags: [],
+      chartType: null,
     };
     const list = reportsBySection.get(row.SectionId) ?? [];
     list.push(meta);
@@ -160,6 +205,161 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
   }
 
   return workspaces;
+}
+
+async function listWorkspaceTreeWithBiColumns(ownerId: string): Promise<WorkspaceTree[]> {
+  const pool = await getPool();
+  const wReq = pool.request();
+  wReq.input("ownerId", sql.UniqueIdentifier, ownerId);
+  const wRes = await wReq.query<{
+    Id: string;
+    Title: string;
+    SortOrder: number;
+    CreatedAt: Date;
+    UpdatedAt: Date;
+    IconKey: string | null;
+    IsPinned: boolean | null;
+    AccentColor: string | null;
+  }>(
+    `SELECT CAST(Id AS VARCHAR(36)) AS Id, Title, SortOrder, CreatedAt, UpdatedAt,
+            IconKey, IsPinned, AccentColor
+     FROM dbo.SndApp_Workspace
+     WHERE UserId = @ownerId
+     ORDER BY IsPinned DESC, SortOrder ASC, CreatedAt ASC`,
+  );
+
+  const workspaces: WorkspaceTree[] = [];
+  for (const row of wRes.recordset) {
+    workspaces.push({
+      id: row.Id,
+      title: row.Title,
+      sortOrder: row.SortOrder,
+      createdAt: rowDate(row.CreatedAt),
+      updatedAt: rowDate(row.UpdatedAt),
+      iconKey: row.IconKey ?? null,
+      isPinned: Boolean(row.IsPinned),
+      accentColor: row.AccentColor ?? null,
+      sections: [],
+    });
+  }
+
+  if (workspaces.length === 0) return [];
+
+  const wsIds = workspaces.map((w) => w.id);
+  const sReq = pool.request();
+  wsIds.forEach((id, i) => sReq.input(`w${i}`, sql.UniqueIdentifier, id));
+  const inList = wsIds.map((_, i) => `@w${i}`).join(", ");
+  const sRes = await sReq.query<{
+    Id: string;
+    WorkspaceId: string;
+    Title: string;
+    SortOrder: number;
+    CreatedAt: Date;
+    UpdatedAt: Date;
+    ColorKey: string | null;
+  }>(
+    `SELECT CAST(Id AS VARCHAR(36)) AS Id,
+            CAST(WorkspaceId AS VARCHAR(36)) AS WorkspaceId,
+            Title, SortOrder, CreatedAt, UpdatedAt, ColorKey
+     FROM dbo.SndApp_WorkspaceSection
+     WHERE WorkspaceId IN (${inList})
+     ORDER BY SortOrder ASC, CreatedAt ASC`,
+  );
+
+  const sectionByWs = new Map<string, SectionTree[]>();
+  const allSections: SectionTree[] = [];
+  for (const row of sRes.recordset) {
+    const sec: SectionTree = {
+      id: row.Id,
+      title: row.Title,
+      sortOrder: row.SortOrder,
+      createdAt: rowDate(row.CreatedAt),
+      updatedAt: rowDate(row.UpdatedAt),
+      colorKey: row.ColorKey ?? null,
+      reports: [],
+    };
+    const list = sectionByWs.get(row.WorkspaceId) ?? [];
+    list.push(sec);
+    sectionByWs.set(row.WorkspaceId, list);
+    allSections.push(sec);
+  }
+
+  for (const w of workspaces) {
+    w.sections = sectionByWs.get(w.id) ?? [];
+  }
+
+  if (allSections.length === 0) return workspaces;
+
+  const secIds = allSections.map((s) => s.id);
+  const rReq = pool.request();
+  secIds.forEach((id, i) => rReq.input(`s${i}`, sql.UniqueIdentifier, id));
+  const rInList = secIds.map((_, i) => `@s${i}`).join(", ");
+  const rRes = await rReq.query<{
+    Id: string;
+    SectionId: string;
+    Title: string;
+    Source: string;
+    Narrative: string | null;
+    SortOrder: number;
+    CreatedAt: Date;
+    UpdatedAt: Date;
+    IsFavorite: boolean | null;
+    IsPinned: boolean | null;
+    LastOpenedAt: Date | null;
+    OpenCount: number | null;
+    TagsJson: string | null;
+    ChartType: string | null;
+  }>(
+    `SELECT CAST(Id AS VARCHAR(36)) AS Id,
+            CAST(SectionId AS VARCHAR(36)) AS SectionId,
+            Title, Source, Narrative, SortOrder, CreatedAt, UpdatedAt,
+            IsFavorite, IsPinned, LastOpenedAt, OpenCount, TagsJson, ChartType
+     FROM dbo.SndApp_SavedReport
+     WHERE SectionId IN (${rInList})
+     ORDER BY SortOrder ASC, CreatedAt ASC`,
+  );
+
+  const reportsBySection = new Map<string, SavedReportMeta[]>();
+  for (const row of rRes.recordset) {
+    const meta: SavedReportMeta = {
+      id: row.Id,
+      title: row.Title,
+      source: row.Source === "builtin" ? "builtin" : "agent",
+      narrative: row.Narrative,
+      sortOrder: row.SortOrder ?? 0,
+      createdAt: rowDate(row.CreatedAt),
+      updatedAt: rowDate(row.UpdatedAt),
+      isFavorite: Boolean(row.IsFavorite),
+      isPinned: Boolean(row.IsPinned),
+      lastOpenedAt: row.LastOpenedAt ? rowDate(row.LastOpenedAt) : null,
+      openCount: row.OpenCount ?? 0,
+      tags: parseTagsJson(row.TagsJson),
+      chartType: row.ChartType ?? null,
+    };
+    const list = reportsBySection.get(row.SectionId) ?? [];
+    list.push(meta);
+    reportsBySection.set(row.SectionId, list);
+  }
+
+  for (const s of allSections) {
+    s.reports = reportsBySection.get(s.id) ?? [];
+  }
+
+  return workspaces;
+}
+
+export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[]> {
+  try {
+    return await listWorkspaceTreeWithBiColumns(ownerId);
+  } catch (e) {
+    if (isMissingColumnSchemaError(e)) {
+      console.warn(
+        "[workspace-db] BI metadata columns missing; using legacy list query. Apply scripts/migrations/009-workspace-bi-metadata.sql for favorites, pins, chart type, etc.",
+      );
+      return listWorkspaceTreeLegacy(ownerId);
+    }
+    throw e;
+  }
 }
 
 export async function createWorkspace(
@@ -185,14 +385,42 @@ export async function updateWorkspace(
   workspaceId: string,
   title: string,
 ): Promise<boolean> {
+  return patchWorkspace(ownerId, workspaceId, { title });
+}
+
+export async function patchWorkspace(
+  ownerId: string,
+  workspaceId: string,
+  patch: {
+    title?: string;
+    iconKey?: string | null;
+    isPinned?: boolean;
+    accentColor?: string | null;
+  },
+): Promise<boolean> {
+  const hasTitle = typeof patch.title === "string" && patch.title.trim().length > 0;
+  const hasIcon = patch.iconKey !== undefined;
+  const hasPin = typeof patch.isPinned === "boolean";
+  const hasAccent = patch.accentColor !== undefined;
+  if (!hasTitle && !hasIcon && !hasPin && !hasAccent) return false;
+
   const pool = await getPool();
   const req = pool.request();
   req.input("id", sql.UniqueIdentifier, workspaceId);
   req.input("ownerId", sql.UniqueIdentifier, ownerId);
-  req.input("title", sql.NVarChar(500), title.trim().slice(0, 500));
+  if (hasTitle) req.input("title", sql.NVarChar(500), patch.title!.trim().slice(0, 500));
+  if (hasIcon) req.input("iconKey", sql.NVarChar(64), patch.iconKey);
+  if (hasPin) req.input("isPinned", sql.Bit, patch.isPinned ? 1 : 0);
+  if (hasAccent) req.input("accentColor", sql.NVarChar(32), patch.accentColor);
+
+  const sets: string[] = ["UpdatedAt = SYSUTCDATETIME()"];
+  if (hasTitle) sets.push("Title = @title");
+  if (hasIcon) sets.push("IconKey = @iconKey");
+  if (hasPin) sets.push("IsPinned = @isPinned");
+  if (hasAccent) sets.push("AccentColor = @accentColor");
+
   const res = await req.query(
-    `UPDATE dbo.SndApp_Workspace
-     SET Title = @title, UpdatedAt = SYSUTCDATETIME()
+    `UPDATE dbo.SndApp_Workspace SET ${sets.join(", ")}
      WHERE Id = @id AND UserId = @ownerId`,
   );
   return (res.rowsAffected?.[0] ?? 0) > 0;
@@ -241,13 +469,31 @@ export async function updateSection(
   sectionId: string,
   title: string,
 ): Promise<boolean> {
+  return patchWorkspaceSection(ownerId, sectionId, { title });
+}
+
+export async function patchWorkspaceSection(
+  ownerId: string,
+  sectionId: string,
+  patch: { title?: string; colorKey?: string | null },
+): Promise<boolean> {
+  const hasTitle = typeof patch.title === "string" && patch.title.trim().length > 0;
+  const hasColor = patch.colorKey !== undefined;
+  if (!hasTitle && !hasColor) return false;
+
   const pool = await getPool();
   const req = pool.request();
   req.input("sid", sql.UniqueIdentifier, sectionId);
   req.input("oid", sql.UniqueIdentifier, ownerId);
-  req.input("title", sql.NVarChar(500), title.trim().slice(0, 500));
+  if (hasTitle) req.input("title", sql.NVarChar(500), patch.title!.trim().slice(0, 500));
+  if (hasColor) req.input("colorKey", sql.NVarChar(32), patch.colorKey);
+
+  const sets: string[] = ["sec.UpdatedAt = SYSUTCDATETIME()"];
+  if (hasTitle) sets.push("sec.Title = @title");
+  if (hasColor) sets.push("sec.ColorKey = @colorKey");
+
   const res = await req.query(
-    `UPDATE sec SET sec.Title = @title, sec.UpdatedAt = SYSUTCDATETIME()
+    `UPDATE sec SET ${sets.join(", ")}
      FROM dbo.SndApp_WorkspaceSection sec
      INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
      WHERE sec.Id = @sid AND w.UserId = @oid`,
@@ -281,6 +527,7 @@ export async function createSavedReport(
     sqlText: string | null;
     chartConfigJson: string | null;
     narrative: string | null;
+    chartType?: string | null;
   },
 ): Promise<{ id: string } | null> {
   const pool = await getPool();
@@ -305,12 +552,18 @@ export async function createSavedReport(
   req.input("sqlText", NVARCHAR_MAX, payload.sqlText ?? null);
   req.input("chartJson", NVARCHAR_MAX, payload.chartConfigJson ?? null);
   req.input("narrative", NVARCHAR_MAX, payload.narrative ?? null);
+  const ct =
+    typeof payload.chartType === "string" && payload.chartType.trim()
+      ? payload.chartType.trim().slice(0, 32)
+      : null;
+  req.input("chartType", sql.VarChar(32), ct);
 
   await req.query(
     `INSERT INTO dbo.SndApp_SavedReport
-       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative, SortOrder)
+       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative, SortOrder, ChartType)
      VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative,
-       (SELECT ISNULL(MAX(SortOrder), -1) + 1 FROM dbo.SndApp_SavedReport WHERE SectionId = @sectionId))`,
+       (SELECT ISNULL(MAX(SortOrder), -1) + 1 FROM dbo.SndApp_SavedReport WHERE SectionId = @sectionId),
+       @chartType)`,
   );
   return { id };
 }
@@ -393,11 +646,19 @@ export async function deleteSavedReport(ownerId: string, reportId: string): Prom
   return (res.rowsAffected?.[0] ?? 0) > 0;
 }
 
-/** Optional title and/or target section; at least one must be provided. Runs in one transaction. */
+export type SavedReportPatch = {
+  title?: string;
+  sectionId?: string;
+  isFavorite?: boolean;
+  isPinned?: boolean;
+  tags?: string[] | null;
+};
+
+/** Title and/or section move run in one transaction; favorites/pins/tags use a follow-up update. */
 export async function patchSavedReport(
   ownerId: string,
   reportId: string,
-  patch: { title?: string; sectionId?: string },
+  patch: SavedReportPatch,
 ): Promise<boolean> {
   const titleTrim = typeof patch.title === "string" ? patch.title.trim() : "";
   const hasTitle = titleTrim.length > 0;
@@ -405,7 +666,38 @@ export async function patchSavedReport(
     typeof patch.sectionId === "string" && patch.sectionId.trim() !== ""
       ? patch.sectionId.trim()
       : null;
-  if (!hasTitle && !targetSid) return false;
+  const hasMove = Boolean(targetSid);
+  const hasFav = typeof patch.isFavorite === "boolean";
+  const hasPin = typeof patch.isPinned === "boolean";
+  const hasTags = patch.tags !== undefined;
+
+  if (!hasTitle && !hasMove && !hasFav && !hasPin && !hasTags) return false;
+
+  // Metadata-only patch (no title/section change)
+  if (!hasTitle && !hasMove) {
+    const pool = await getPool();
+    const req = pool.request();
+    req.input("rid", sql.UniqueIdentifier, reportId);
+    req.input("oid", sql.UniqueIdentifier, ownerId);
+    if (hasFav) req.input("isFavorite", sql.Bit, patch.isFavorite ? 1 : 0);
+    if (hasPin) req.input("isPinned", sql.Bit, patch.isPinned ? 1 : 0);
+    if (hasTags) {
+      const tj = serializeTagsJson(patch.tags ?? []);
+      req.input("tagsJson", NVARCHAR_MAX, tj);
+    }
+    const sets: string[] = ["r.UpdatedAt = SYSUTCDATETIME()"];
+    if (hasFav) sets.push("r.IsFavorite = @isFavorite");
+    if (hasPin) sets.push("r.IsPinned = @isPinned");
+    if (hasTags) sets.push("r.TagsJson = @tagsJson");
+    const res = await req.query(
+      `UPDATE r SET ${sets.join(", ")}
+       FROM dbo.SndApp_SavedReport r
+       INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+       INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+       WHERE r.Id = @rid AND w.UserId = @oid`,
+    );
+    return (res.rowsAffected?.[0] ?? 0) > 0;
+  }
 
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -474,11 +766,110 @@ export async function patchSavedReport(
     }
 
     await transaction.commit();
+
+    if (hasFav || hasPin || hasTags) {
+      const ok = await patchSavedReport(ownerId, reportId, {
+        ...(hasFav ? { isFavorite: patch.isFavorite } : {}),
+        ...(hasPin ? { isPinned: patch.isPinned } : {}),
+        ...(hasTags ? { tags: patch.tags } : {}),
+      });
+      return ok;
+    }
+
     return true;
   } catch (e) {
     await transaction.rollback();
     throw e;
   }
+}
+
+export async function recordReportOpened(ownerId: string, reportId: string): Promise<boolean> {
+  const pool = await getPool();
+  const req = pool.request();
+  req.input("rid", sql.UniqueIdentifier, reportId);
+  req.input("oid", sql.UniqueIdentifier, ownerId);
+  const res = await req.query(
+    `UPDATE r SET r.LastOpenedAt = SYSUTCDATETIME(), r.OpenCount = r.OpenCount + 1, r.UpdatedAt = SYSUTCDATETIME()
+     FROM dbo.SndApp_SavedReport r
+     INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+     INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+     WHERE r.Id = @rid AND w.UserId = @oid`,
+  );
+  return (res.rowsAffected?.[0] ?? 0) > 0;
+}
+
+export async function updateSavedReportChartType(
+  ownerId: string,
+  reportId: string,
+  chartType: string | null,
+): Promise<boolean> {
+  const pool = await getPool();
+  const req = pool.request();
+  req.input("rid", sql.UniqueIdentifier, reportId);
+  req.input("oid", sql.UniqueIdentifier, ownerId);
+  const ct =
+    typeof chartType === "string" && chartType.trim().length > 0
+      ? chartType.trim().slice(0, 32)
+      : null;
+  req.input("chartType", sql.VarChar(32), ct);
+  const res = await req.query(
+    `UPDATE r SET r.ChartType = @chartType, r.UpdatedAt = SYSUTCDATETIME()
+     FROM dbo.SndApp_SavedReport r
+     INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+     INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+     WHERE r.Id = @rid AND w.UserId = @oid`,
+  );
+  return (res.rowsAffected?.[0] ?? 0) > 0;
+}
+
+export async function duplicateSavedReport(
+  ownerId: string,
+  reportId: string,
+  targetSectionId?: string,
+): Promise<{ id: string } | null> {
+  const full = await getSavedReportFull(ownerId, reportId);
+  if (!full) return null;
+
+  const pool = await getPool();
+  const sidReq = pool.request();
+  sidReq.input("rid", sql.UniqueIdentifier, reportId);
+  sidReq.input("oid", sql.UniqueIdentifier, ownerId);
+  const sidRes = await sidReq.query<{ SectionId: string }>(
+    `SELECT CAST(r.SectionId AS VARCHAR(36)) AS SectionId
+     FROM dbo.SndApp_SavedReport r
+     INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+     INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+     WHERE r.Id = @rid AND w.UserId = @oid`,
+  );
+  const currentSectionId = sidRes.recordset[0]?.SectionId;
+  if (!currentSectionId) return null;
+
+  const sectionId = targetSectionId?.trim() || currentSectionId;
+  if (sectionId !== currentSectionId) {
+    const check = pool.request();
+    check.input("sid", sql.UniqueIdentifier, sectionId);
+    check.input("oid", sql.UniqueIdentifier, ownerId);
+    const ok = await check.query<{ c: number }>(
+      `SELECT COUNT(*) AS c
+       FROM dbo.SndApp_WorkspaceSection sec
+       INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+       WHERE sec.Id = @sid AND w.UserId = @oid`,
+    );
+    if (!ok.recordset[0] || ok.recordset[0].c === 0) return null;
+  }
+
+  const chartType = chartTypeFromJsonString(full.chartConfigJson);
+
+  const copyTitle = `${full.title} (copy)`.trim().slice(0, 500);
+  return createSavedReport(ownerId, sectionId, {
+    title: copyTitle.length > 0 ? copyTitle : "Copy",
+    source: full.source,
+    prompt: full.prompt,
+    sqlText: full.sqlText,
+    chartConfigJson: full.chartConfigJson,
+    narrative: full.narrative,
+    chartType,
+  });
 }
 
 export async function reorderSavedReports(

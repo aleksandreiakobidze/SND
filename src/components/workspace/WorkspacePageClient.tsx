@@ -1,8 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { GripVertical, Pencil, Plus } from "lucide-react";
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  LayoutGrid,
+  LineChart,
+  List,
+  Pencil,
+  PieChart,
+  Pin,
+  Plus,
+  Search,
+  Table2,
+  TrendingUp,
+} from "lucide-react";
 import {
   DndContext,
   PointerSensor,
@@ -20,21 +35,59 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useLocale } from "@/lib/locale-context";
 import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
 import type { SavedReportMeta, WorkspaceTree } from "@/lib/workspace-db";
-import { SavedReportCard } from "@/components/workspace/SavedReportCard";
+import { SavedReportLibraryCard } from "@/components/workspace/SavedReportLibraryCard";
+import { SavedReportLibraryRow } from "@/components/workspace/SavedReportLibraryRow";
+import { MoveReportDialog } from "@/components/workspace/MoveReportDialog";
 import {
   applyReportDragEnd,
   REP_PREFIX,
   SEC_PREFIX,
   stripSecPrefix,
 } from "@/components/workspace/workspace-dnd-helpers";
+import {
+  filterFlatReports,
+  flattenReportsInTab,
+  groupBySectionOrder,
+  sortFlatReports,
+  tabReportCount,
+  type WorkspaceFilterScope,
+  type WorkspaceSortMode,
+} from "@/components/workspace/workspace-report-index";
 import { cn } from "@/lib/utils";
+
+const VIEW_KEY = "snd-workspace-view";
+const COLLAPSE_KEY = "snd-workspace-collapsed-sections";
 
 function buildReportOrderMap(ws: WorkspaceTree): Record<string, string[]> {
   const o: Record<string, string[]> = {};
@@ -149,13 +202,16 @@ function SortableWorkspaceTab({
           type="button"
           onClick={onSelect}
           className={cn(
-            "rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+            "relative rounded-xl px-4 py-2.5 text-sm font-semibold transition-all",
             active
-              ? "bg-background text-foreground shadow-md ring-1 ring-border/60"
-              : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+              ? "bg-card text-foreground shadow-md ring-2 ring-primary/40"
+              : "text-muted-foreground hover:bg-muted/80 hover:text-foreground",
           )}
         >
           {label}
+          {active ? (
+            <span className="absolute inset-x-3 -bottom-1 h-0.5 rounded-full bg-primary" />
+          ) : null}
         </button>
       )}
       {children}
@@ -169,12 +225,14 @@ function SortableSectionHeader({
   titleContent,
   actions,
   dragAriaLabel,
+  accentClassName,
 }: {
   sectionId: string;
   canEdit: boolean;
   titleContent: React.ReactNode;
   actions?: React.ReactNode;
   dragAriaLabel: string;
+  accentClassName?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `${SEC_PREFIX}${sectionId}`,
@@ -189,7 +247,8 @@ function SortableSectionHeader({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center justify-between gap-2 border-b border-border/50 pb-3",
+        "flex items-center justify-between gap-2 rounded-t-xl border border-b-0 border-border/70 bg-muted/20 px-4 py-3",
+        accentClassName,
         isDragging && "z-50 opacity-60",
       )}
     >
@@ -212,17 +271,31 @@ function SortableSectionHeader({
   );
 }
 
-function EmptySectionDrop({ sectionId, label }: { sectionId: string; label: string }) {
+function EmptySectionDropFixed({
+  sectionId,
+  title,
+  hint,
+  newReportCta,
+}: {
+  sectionId: string;
+  title: string;
+  hint: string;
+  newReportCta: string;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `${SEC_PREFIX}${sectionId}` });
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "min-h-[4rem] rounded-lg border border-dashed border-border/60 p-4 text-sm text-muted-foreground",
+        "flex min-h-[5rem] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-muted/10 p-6 text-center text-sm text-muted-foreground",
         isOver && "border-primary bg-primary/5",
       )}
     >
-      {label}
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="max-w-sm text-xs">{hint}</p>
+      <Link href="/agent" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+        {newReportCta}
+      </Link>
     </div>
   );
 }
@@ -247,16 +320,12 @@ function SortableReportRow({
     transition,
   };
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(isDragging && "z-50 opacity-50")}
-    >
-      <div className="flex gap-2 items-start">
+    <div ref={setNodeRef} style={style} className={cn(isDragging && "z-50 opacity-50")}>
+      <div className="flex items-start gap-2">
         {canEdit && (
           <button
             type="button"
-            className="mt-4 cursor-grab touch-none shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+            className="mt-3 cursor-grab touch-none shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
             {...attributes}
             {...listeners}
             aria-label={dragAriaLabel}
@@ -270,12 +339,36 @@ function SortableReportRow({
   );
 }
 
+const TAB_ICONS: Record<string, React.ElementType> = {
+  BarChart3,
+  LayoutGrid,
+  LineChart,
+  PieChart,
+  Table2,
+  TrendingUp,
+};
+
+function TabIcon({ name }: { name: string | null }) {
+  if (!name) return null;
+  const I = TAB_ICONS[name] ?? LayoutGrid;
+  return <I className="mr-1.5 inline h-4 w-4 opacity-80" />;
+}
+
+const SECTION_RING: Record<string, string> = {
+  blue: "border-l-4 border-l-blue-500/80",
+  violet: "border-l-4 border-l-violet-500/80",
+  emerald: "border-l-4 border-l-emerald-500/80",
+  amber: "border-l-4 border-l-amber-500/80",
+  rose: "border-l-4 border-l-rose-500/80",
+};
+
 export function WorkspacePageClient() {
   const { t } = useLocale();
   const { user, permissions } = useAuth();
   const { canEditWorkspace } = useAuthCapabilities(permissions);
-  /** Reordering tabs/sections/reports is allowed for any signed-in user (API scopes by owner). */
   const canReorderWorkspace = Boolean(user);
+  const searchRef = useRef<HTMLInputElement>(null);
+
   const [tree, setTree] = useState<WorkspaceTree[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -286,6 +379,60 @@ export function WorkspacePageClient() {
   const [wsTitleDraft, setWsTitleDraft] = useState("");
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [sectionTitleDraft, setSectionTitleDraft] = useState("");
+
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<WorkspaceSortMode>("updated");
+  const [filterScope, setFilterScope] = useState<WorkspaceFilterScope>("all");
+  const [chartTypeFilter, setChartTypeFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
+
+  const [moveTarget, setMoveTarget] = useState<{ id: string; title: string; sectionId: string } | null>(null);
+  const [confirm, setConfirm] = useState<
+    | { kind: "tab"; id: string }
+    | { kind: "section"; id: string }
+    | { kind: "report"; id: string }
+    | null
+  >(null);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      if (v === "list" || v === "card") setViewMode(v);
+      const c = localStorage.getItem(COLLAPSE_KEY);
+      if (c) setCollapsed(JSON.parse(c) as Record<string, boolean>);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, viewMode);
+    } catch {
+      /* ignore */
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -317,6 +464,49 @@ export function WorkspacePageClient() {
 
   const activeWs = tree.find((w) => w.id === activeWsId) ?? null;
 
+  const hasActiveFilters =
+    search.trim().length > 0 || filterScope !== "all" || chartTypeFilter !== null;
+
+  const displaySections = useMemo(() => {
+    if (!activeWs) return [];
+    const flat = flattenReportsInTab(activeWs);
+    const filtered = filterFlatReports(flat, {
+      search,
+      scope: filterScope,
+      chartType: chartTypeFilter,
+    });
+    const sorted = sortFlatReports(filtered, sortMode);
+    return groupBySectionOrder(activeWs, sorted);
+  }, [activeWs, search, filterScope, chartTypeFilter, sortMode]);
+
+  const quickFavorites = useMemo(() => {
+    if (!activeWs) return [];
+    return flattenReportsInTab(activeWs)
+      .filter((e) => e.report.isFavorite)
+      .slice(0, 8)
+      .map((e) => e.report);
+  }, [activeWs]);
+
+  const quickRecent = useMemo(() => {
+    if (!activeWs) return [];
+    return flattenReportsInTab(activeWs)
+      .filter((e) => e.report.lastOpenedAt)
+      .sort(
+        (a, b) =>
+          new Date(b.report.lastOpenedAt!).getTime() - new Date(a.report.lastOpenedAt!).getTime(),
+      )
+      .slice(0, 6)
+      .map((e) => e.report);
+  }, [activeWs]);
+
+  const quickPinned = useMemo(() => {
+    if (!activeWs) return [];
+    return flattenReportsInTab(activeWs)
+      .filter((e) => e.report.isPinned)
+      .slice(0, 6)
+      .map((e) => e.report);
+  }, [activeWs]);
+
   async function addWorkspace() {
     if (!canEditWorkspace) return;
     const title = newTabName.trim();
@@ -332,15 +522,16 @@ export function WorkspacePageClient() {
     setNewTabName("");
     if (json.id) setActiveWsId(json.id);
     await load();
+    toast.success(t("workspaceToastSaved"));
   }
 
   async function removeWorkspace(id: string) {
     if (!canEditWorkspace) return;
-    if (!confirm(t("workspaceConfirmDeleteTab"))) return;
     const res = await fetch(`/api/workspaces/${id}`, { method: "DELETE", credentials: "include" });
     if (!res.ok) return;
     if (activeWsId === id) setActiveWsId(null);
     await load();
+    toast.success(t("workspaceToastSaved"));
   }
 
   async function saveWorkspaceTitle(workspaceId: string) {
@@ -355,6 +546,21 @@ export function WorkspacePageClient() {
     if (res.ok) {
       setEditingWsId(null);
       await load();
+      toast.success(t("workspaceToastSaved"));
+    }
+  }
+
+  async function togglePinWorkspace(w: WorkspaceTree) {
+    if (!canEditWorkspace) return;
+    const res = await fetch(`/api/workspaces/${w.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPinned: !w.isPinned }),
+    });
+    if (res.ok) {
+      await load();
+      toast.success(t("workspaceToastSaved"));
     }
   }
 
@@ -371,14 +577,15 @@ export function WorkspacePageClient() {
     if (!res.ok) return;
     setNewSectionName("");
     await load();
+    toast.success(t("workspaceToastSaved"));
   }
 
   async function removeSection(id: string) {
     if (!canEditWorkspace) return;
-    if (!confirm(t("workspaceConfirmDeleteSection"))) return;
     const res = await fetch(`/api/sections/${id}`, { method: "DELETE", credentials: "include" });
     if (!res.ok) return;
     await load();
+    toast.success(t("workspaceToastSaved"));
   }
 
   async function saveSectionTitle(sectionId: string) {
@@ -393,6 +600,7 @@ export function WorkspacePageClient() {
     if (res.ok) {
       setEditingSectionId(null);
       await load();
+      toast.success(t("workspaceToastSaved"));
     }
   }
 
@@ -435,7 +643,7 @@ export function WorkspacePageClient() {
   };
 
   const onReportDragEnd = async (event: DragEndEvent) => {
-    if (!canReorderWorkspace || !activeWs) return;
+    if (!canReorderWorkspace || !activeWs || hasActiveFilters) return;
     const prev = buildReportOrderMap(activeWs);
     const next = applyReportDragEnd(prev, event);
     if (!next) return;
@@ -458,6 +666,65 @@ export function WorkspacePageClient() {
       void onReportDragEnd(event);
     }
   };
+
+  async function patchReport(id: string, body: Record<string, unknown>) {
+    const res = await fetch(`/api/reports/${id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      await load();
+      return true;
+    }
+    return false;
+  }
+
+  async function refreshReport(id: string) {
+    setRefreshingId(id);
+    try {
+      const res = await fetch(`/api/reports/${id}/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        toast.success(t("workspaceToastSaved"));
+        await load();
+      } else {
+        toast.error(t("error"));
+      }
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
+  async function deleteReport(id: string) {
+    const res = await fetch(`/api/reports/${id}`, { method: "DELETE", credentials: "include" });
+    if (res.ok) {
+      await load();
+      toast.success(t("workspaceToastDeleted"));
+    }
+  }
+
+  async function duplicateReport(id: string) {
+    const res = await fetch(`/api/reports/${id}/duplicate`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      await load();
+      toast.success(t("workspaceToastDuplicated"));
+    }
+  }
+
+  async function confirmMove(sectionId: string) {
+    if (!moveTarget) return;
+    const ok = await patchReport(moveTarget.id, { sectionId });
+    if (ok) toast.success(t("workspaceToastMoved"));
+  }
 
   if (loading) {
     return (
@@ -486,24 +753,166 @@ export function WorkspacePageClient() {
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
-      <div className="relative mx-auto max-w-[1600px] space-y-8 px-6 pb-10 pt-6">
-        <PageHeader title={t("myWorkspace")} description={t("workspacePageDesc")}>
-          <Link
-            href="/agent"
-            className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl border-border/70" })}
-          >
-            {t("workspaceOpenFullAgent")}
-          </Link>
-        </PageHeader>
+      <div className="relative mx-auto max-w-[1600px] space-y-6 px-6 pb-12 pt-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <PageHeader title={t("myWorkspace")} description={t("workspacePageDesc")} className="max-w-xl" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/agent"
+              className={buttonVariants({ size: "sm", className: "h-9 gap-1.5 rounded-xl" })}
+            >
+              <Plus className="h-4 w-4" />
+              {t("workspaceNewReport")}
+            </Link>
+            <Link
+              href="/agent"
+              className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl border-border/70" })}
+            >
+              {t("workspaceOpenFullAgent")}
+            </Link>
+          </div>
+        </div>
 
         {!canEditWorkspace ? (
           <p className="text-sm text-muted-foreground">{t("workspaceReadOnlyHint")}</p>
         ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <div className="flex flex-col gap-3 overflow-x-auto rounded-2xl border border-border/50 bg-muted/25 p-4 shadow-inner dark:bg-muted/15 sm:flex-row sm:items-end">
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/40 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchRef}
+                className="h-10 rounded-xl pl-9"
+                placeholder={t("workspaceSearchPlaceholder")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 text-[0.65rem] text-muted-foreground sm:inline">
+                {t("workspaceFocusSearchHint")}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={sortMode} onValueChange={(v) => setSortMode(v as WorkspaceSortMode)}>
+                <SelectTrigger className="h-9 w-[160px] rounded-xl">
+                  <SelectValue placeholder={t("workspaceSortLabel")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">{t("workspaceSortName")}</SelectItem>
+                  <SelectItem value="updated">{t("workspaceSortUpdated")}</SelectItem>
+                  <SelectItem value="opened">{t("workspaceSortOpened")}</SelectItem>
+                  <SelectItem value="used">{t("workspaceSortUsed")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={filterScope} onValueChange={(v) => setFilterScope(v as WorkspaceFilterScope)}>
+                <SelectTrigger className="h-9 w-[140px] rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("workspaceFilterAll")}</SelectItem>
+                  <SelectItem value="favorites">{t("workspaceFilterFavorites")}</SelectItem>
+                  <SelectItem value="pinned">{t("workspaceFilterPinned")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={chartTypeFilter ?? "all"}
+                onValueChange={(v) => setChartTypeFilter(v === "all" ? null : v)}
+              >
+                <SelectTrigger className="h-9 w-[160px] rounded-xl">
+                  <SelectValue placeholder={t("workspaceFilterChartAll")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("workspaceFilterChartAll")}</SelectItem>
+                  <SelectItem value="bar">{t("workspaceChartTypeBar")}</SelectItem>
+                  <SelectItem value="line">{t("workspaceChartTypeLine")}</SelectItem>
+                  <SelectItem value="pie">{t("workspaceChartTypePie")}</SelectItem>
+                  <SelectItem value="area">{t("workspaceChartTypeArea")}</SelectItem>
+                  <SelectItem value="table">{t("workspaceChartTypeTable")}</SelectItem>
+                  <SelectItem value="number">{t("workspaceChartTypeNumber")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex rounded-xl border border-border/70 p-0.5">
+                <Button
+                  type="button"
+                  variant={viewMode === "card" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 gap-1 rounded-lg"
+                  onClick={() => setViewMode("card")}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  {t("workspaceViewCard")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 gap-1 rounded-lg"
+                  onClick={() => setViewMode("list")}
+                >
+                  <List className="h-4 w-4" />
+                  {t("workspaceViewList")}
+                </Button>
+              </div>
+            </div>
+          </div>
+          {hasActiveFilters ? (
+            <p className="text-xs text-muted-foreground">{t("workspaceFiltersActiveHint")}</p>
+          ) : null}
+        </div>
+
+        {/* Quick access */}
+        {activeWs && (quickFavorites.length > 0 || quickRecent.length > 0 || quickPinned.length > 0) ? (
+          <div className="space-y-2 rounded-2xl border border-border/50 bg-muted/15 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("workspaceQuickAccessTitle")}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {quickPinned.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">{t("workspaceQuickPinned")}:</span>
+                  {quickPinned.map((r) => (
+                    <Link key={r.id} href={`/agent?report=${r.id}`}>
+                      <Badge variant="secondary" className="cursor-pointer font-normal hover:bg-muted">
+                        {r.title}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {quickFavorites.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">{t("workspaceQuickFavorites")}:</span>
+                  {quickFavorites.map((r) => (
+                    <Link key={r.id} href={`/agent?report=${r.id}`}>
+                      <Badge variant="outline" className="cursor-pointer font-normal">
+                        {r.title}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+              {quickRecent.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">{t("workspaceQuickRecent")}:</span>
+                  {quickRecent.map((r) => (
+                    <Link key={r.id} href={`/agent?report=${r.id}`}>
+                      <Badge variant="outline" className="cursor-pointer font-normal">
+                        {r.title}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Tabs */}
+        <div className="flex flex-col gap-3 overflow-x-auto rounded-2xl border border-border/60 bg-muted/20 p-4 dark:bg-muted/10">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onWorkspaceDragEnd}>
-            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               {tree.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">{t("workspaceEmpty")}</p>
               ) : (
@@ -530,12 +939,54 @@ export function WorkspacePageClient() {
                             autoFocus
                           />
                         ) : (
-                          w.title
+                          <span className="flex items-center">
+                            <TabIcon name={w.iconKey} />
+                            {w.title}
+                            <Badge variant="secondary" className="ml-2 font-mono text-[0.65rem]">
+                              {tabReportCount(w)}
+                            </Badge>
+                          </span>
                         )
                       }
                     >
                       {canEditWorkspace && editingWsId !== w.id ? (
                         <>
+                          <Select
+                            value={w.iconKey ?? "none"}
+                            onValueChange={async (v) => {
+                              const iconKey = v === "none" ? null : v;
+                              const res = await fetch(`/api/workspaces/${w.id}`, {
+                                method: "PATCH",
+                                credentials: "include",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ iconKey }),
+                              });
+                              if (res.ok) await load();
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[110px] rounded-lg text-xs">
+                              <SelectValue placeholder="Icon" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No icon</SelectItem>
+                              <SelectItem value="LayoutGrid">Grid</SelectItem>
+                              <SelectItem value="BarChart3">Chart</SelectItem>
+                              <SelectItem value="LineChart">Line</SelectItem>
+                              <SelectItem value="PieChart">Pie</SelectItem>
+                              <SelectItem value="Table2">Table</SelectItem>
+                              <SelectItem value="TrendingUp">Trend</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-8 w-8"
+                            title={w.isPinned ? t("workspaceUnpinTab") : t("workspacePinTab")}
+                            onClick={() => void togglePinWorkspace(w)}
+                          >
+                            <Pin className={cn("h-3.5 w-3.5", w.isPinned && "text-primary")} />
+                          </Button>
                           <button
                             type="button"
                             className="rounded p-1 text-muted-foreground hover:bg-muted"
@@ -551,7 +1002,7 @@ export function WorkspacePageClient() {
                             type="button"
                             className="rounded p-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                             title={t("workspaceDeleteTab")}
-                            onClick={() => void removeWorkspace(w.id)}
+                            onClick={() => setConfirm({ kind: "tab", id: w.id })}
                           >
                             ×
                           </button>
@@ -574,15 +1025,15 @@ export function WorkspacePageClient() {
             </div>
           </DndContext>
           {canEditWorkspace ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
               <Input
                 placeholder={t("workspaceNewTabPlaceholder")}
-                className="h-9 w-[200px]"
+                className="h-9 max-w-[200px] rounded-xl"
                 value={newTabName}
                 onChange={(e) => setNewTabName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void addWorkspace()}
               />
-              <Button type="button" size="sm" className="h-9 gap-1" onClick={() => void addWorkspace()}>
+              <Button type="button" size="sm" className="h-9 gap-1 rounded-xl" onClick={() => void addWorkspace()}>
                 <Plus className="h-4 w-4" />
                 {t("workspaceAddTab")}
               </Button>
@@ -594,17 +1045,23 @@ export function WorkspacePageClient() {
           <p className="text-muted-foreground text-sm">{t("workspaceEmpty")}</p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onContentDragEnd}>
-            <div className="space-y-8">
+            <div className="space-y-6">
               {canEditWorkspace ? (
                 <div className="flex flex-wrap items-end gap-2">
                   <Input
                     placeholder={t("workspaceNewSectionPlaceholder")}
-                    className="h-9 max-w-xs"
+                    className="h-9 max-w-xs rounded-xl"
                     value={newSectionName}
                     onChange={(e) => setNewSectionName(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && void addSection()}
                   />
-                  <Button type="button" size="sm" variant="secondary" className="h-9 gap-1" onClick={() => void addSection()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9 gap-1 rounded-xl"
+                    onClick={() => void addSection()}
+                  >
                     <Plus className="h-4 w-4" />
                     {t("workspaceAddSection")}
                   </Button>
@@ -615,51 +1072,121 @@ export function WorkspacePageClient() {
                 <p className="text-muted-foreground text-sm">{t("workspaceNoSections")}</p>
               ) : (
                 <SortableContext items={sectionSortIds} strategy={verticalListSortingStrategy}>
-                  {activeWs.sections.map((section) => {
-                    const orderIds = buildReportOrderMap(activeWs)[section.id] ?? section.reports.map((r) => r.id);
-                    const reportSortIds = orderIds.map((id) => `${REP_PREFIX}${id}`);
+                  {displaySections.map((section) => {
+                    const sourceSec = activeWs.sections.find((s) => s.id === section.sectionId);
+                    const orderMap = buildReportOrderMap(activeWs);
+                    const orderIds = orderMap[section.sectionId] ?? sourceSec?.reports.map((r) => r.id) ?? [];
+                    const visibleIds = section.reports.map((r) => r.id);
+                    const reportSortIds = (hasActiveFilters ? visibleIds : orderIds).map(
+                      (id) => `${REP_PREFIX}${id}`,
+                    );
+                    const isOpen = !collapsed[section.sectionId];
+                    const ring = section.colorKey ? SECTION_RING[section.colorKey] : "";
+
                     return (
-                      <section key={section.id} className="space-y-3">
+                      <Collapsible
+                        key={section.sectionId}
+                        open={isOpen}
+                        onOpenChange={(open) =>
+                          setCollapsed((prev) => ({ ...prev, [section.sectionId]: !open }))
+                        }
+                        className={cn("overflow-hidden rounded-xl border border-border/70 bg-card/30 shadow-sm", ring)}
+                      >
                         <SortableSectionHeader
-                          sectionId={section.id}
+                          sectionId={section.sectionId}
                           canEdit={canReorderWorkspace}
                           dragAriaLabel={t("workspaceDragHandle")}
+                          accentClassName="rounded-none border-0 bg-transparent"
                           titleContent={
-                            editingSectionId === section.id ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Input
-                                  className="h-9 max-w-md font-semibold"
-                                  value={sectionTitleDraft}
-                                  onChange={(e) => setSectionTitleDraft(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") void saveSectionTitle(section.id);
-                                    if (e.key === "Escape") setEditingSectionId(null);
-                                  }}
-                                  autoFocus
-                                />
-                                <Button type="button" size="sm" variant="secondary" onClick={() => void saveSectionTitle(section.id)}>
-                                  {t("workspaceSave")}
-                                </Button>
-                              </div>
-                            ) : (
-                              <h2 className="text-lg font-semibold tracking-tight">{section.title}</h2>
-                            )
+                            <CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                              {isOpen ? (
+                                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              )}
+                              {editingSectionId === section.sectionId ? (
+                                <div
+                                  className="flex flex-wrap items-center gap-2"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-9 max-w-md font-semibold"
+                                    value={sectionTitleDraft}
+                                    onChange={(e) => setSectionTitleDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") void saveSectionTitle(section.sectionId);
+                                      if (e.key === "Escape") setEditingSectionId(null);
+                                    }}
+                                    autoFocus
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void saveSectionTitle(section.sectionId);
+                                    }}
+                                  >
+                                    {t("workspaceSave")}
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div>
+                                  <h2 className="text-base font-semibold tracking-tight">{section.title}</h2>
+                                  <p className="text-xs text-muted-foreground">
+                                    {section.reports.length} {t("workspaceReportsInSection")}
+                                  </p>
+                                </div>
+                              )}
+                            </CollapsibleTrigger>
                           }
                           actions={
                             <div className="flex items-center gap-1 shrink-0">
-                              {canEditWorkspace && editingSectionId !== section.id ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => {
-                                    setEditingSectionId(section.id);
-                                    setSectionTitleDraft(section.title);
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
+                              {canEditWorkspace && editingSectionId !== section.sectionId ? (
+                                <>
+                                  <Select
+                                    value={section.colorKey ?? "none"}
+                                    onValueChange={async (v) => {
+                                      const colorKey = v === "none" ? null : v;
+                                      const res = await fetch(`/api/sections/${section.sectionId}`, {
+                                        method: "PATCH",
+                                        credentials: "include",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ colorKey }),
+                                      });
+                                      if (res.ok) {
+                                        await load();
+                                        toast.success(t("workspaceToastSaved"));
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 w-[120px] rounded-lg text-xs">
+                                      <SelectValue placeholder="Color" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">Default</SelectItem>
+                                      <SelectItem value="blue">Blue</SelectItem>
+                                      <SelectItem value="violet">Violet</SelectItem>
+                                      <SelectItem value="emerald">Emerald</SelectItem>
+                                      <SelectItem value="amber">Amber</SelectItem>
+                                      <SelectItem value="rose">Rose</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => {
+                                      setEditingSectionId(section.sectionId);
+                                      setSectionTitleDraft(section.title);
+                                    }}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </>
                               ) : null}
                               {canEditWorkspace ? (
                                 <Button
@@ -667,7 +1194,7 @@ export function WorkspacePageClient() {
                                   variant="ghost"
                                   size="sm"
                                   className="text-destructive hover:text-destructive"
-                                  onClick={() => void removeSection(section.id)}
+                                  onClick={() => setConfirm({ kind: "section", id: section.sectionId })}
                                 >
                                   {t("workspaceDeleteSection")}
                                 </Button>
@@ -675,34 +1202,105 @@ export function WorkspacePageClient() {
                             </div>
                           }
                         />
-                        <SortableContext id={`reports-${section.id}`} items={reportSortIds} strategy={verticalListSortingStrategy}>
-                          <div className="grid min-h-[3rem] gap-4 rounded-lg border border-dashed border-transparent p-1 md:grid-cols-1">
-                            {orderIds.length === 0 ? (
-                              <EmptySectionDrop sectionId={section.id} label={t("workspaceNoReports")} />
-                            ) : (
-                              orderIds.map((rid) => {
-                                const r = findReportMeta(activeWs, rid);
-                                if (!r) return null;
-                                return (
-                                  <SortableReportRow
-                                    key={rid}
-                                    reportId={rid}
-                                    canEdit={canReorderWorkspace}
-                                    dragAriaLabel={t("workspaceDragHandle")}
-                                  >
-                                    <SavedReportCard
-                                      report={r}
-                                      onDeleted={() => void load()}
-                                      onTitleUpdated={() => void load()}
-                                      canEdit={canEditWorkspace}
-                                    />
-                                  </SortableReportRow>
-                                );
-                              })
-                            )}
+                        <CollapsibleContent>
+                          <div className="border-t border-border/50 bg-background/40 p-4">
+                            <SortableContext
+                              id={`reports-${section.sectionId}`}
+                              items={reportSortIds}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              {section.reports.length === 0 ? (
+                                <EmptySectionDropFixed
+                                  sectionId={section.sectionId}
+                                  title={t("workspaceEmptySectionTitle")}
+                                  hint={t("workspaceEmptySectionBody")}
+                                  newReportCta={t("workspaceNewReport")}
+                                />
+                              ) : viewMode === "card" ? (
+                                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                  {section.reports.map((r) => {
+                                    const row = (
+                                      <SavedReportLibraryCard
+                                        key={r.id}
+                                        report={r}
+                                        canEdit={canEditWorkspace}
+                                        refreshing={refreshingId === r.id}
+                                        onRefresh={() => void refreshReport(r.id)}
+                                        onDelete={() => setConfirm({ kind: "report", id: r.id })}
+                                        onDuplicate={() => void duplicateReport(r.id)}
+                                        onToggleFavorite={() =>
+                                          void patchReport(r.id, { isFavorite: !r.isFavorite })
+                                        }
+                                        onTogglePin={() => void patchReport(r.id, { isPinned: !r.isPinned })}
+                                        onMove={() =>
+                                          setMoveTarget({
+                                            id: r.id,
+                                            title: r.title,
+                                            sectionId: section.sectionId,
+                                          })
+                                        }
+                                      />
+                                    );
+                                    if (hasActiveFilters) {
+                                      return <div key={r.id}>{row}</div>;
+                                    }
+                                    return (
+                                      <SortableReportRow
+                                        key={r.id}
+                                        reportId={r.id}
+                                        canEdit={canReorderWorkspace}
+                                        dragAriaLabel={t("workspaceDragHandle")}
+                                      >
+                                        {row}
+                                      </SortableReportRow>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {section.reports.map((r) => {
+                                    const row = (
+                                      <SavedReportLibraryRow
+                                        key={r.id}
+                                        report={r}
+                                        canEdit={canEditWorkspace}
+                                        refreshing={refreshingId === r.id}
+                                        onRefresh={() => void refreshReport(r.id)}
+                                        onDelete={() => setConfirm({ kind: "report", id: r.id })}
+                                        onDuplicate={() => void duplicateReport(r.id)}
+                                        onToggleFavorite={() =>
+                                          void patchReport(r.id, { isFavorite: !r.isFavorite })
+                                        }
+                                        onTogglePin={() => void patchReport(r.id, { isPinned: !r.isPinned })}
+                                        onMove={() =>
+                                          setMoveTarget({
+                                            id: r.id,
+                                            title: r.title,
+                                            sectionId: section.sectionId,
+                                          })
+                                        }
+                                      />
+                                    );
+                                    if (hasActiveFilters) {
+                                      return <div key={r.id}>{row}</div>;
+                                    }
+                                    return (
+                                      <SortableReportRow
+                                        key={r.id}
+                                        reportId={r.id}
+                                        canEdit={canReorderWorkspace}
+                                        dragAriaLabel={t("workspaceDragHandle")}
+                                      >
+                                        {row}
+                                      </SortableReportRow>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </SortableContext>
                           </div>
-                        </SortableContext>
-                      </section>
+                        </CollapsibleContent>
+                      </Collapsible>
                     );
                   })}
                 </SortableContext>
@@ -711,6 +1309,55 @@ export function WorkspacePageClient() {
           </DndContext>
         )}
       </div>
+
+      <MoveReportDialog
+        open={Boolean(moveTarget)}
+        onOpenChange={(o) => !o && setMoveTarget(null)}
+        workspace={activeWs}
+        reportTitle={moveTarget?.title ?? ""}
+        initialSectionId={moveTarget?.sectionId ?? ""}
+        onConfirm={async (sectionId) => {
+          await confirmMove(sectionId);
+          setMoveTarget(null);
+        }}
+      />
+
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirm?.kind === "tab"
+                ? t("workspaceDeleteTab")
+                : confirm?.kind === "section"
+                  ? t("workspaceDeleteSection")
+                  : t("workspaceDeleteReport")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm?.kind === "tab"
+                ? t("workspaceConfirmDeleteTab")
+                : confirm?.kind === "section"
+                  ? t("workspaceConfirmDeleteSection")
+                  : t("workspaceConfirmDeleteReport")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirm(null)}>{t("workspaceCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const c = confirm;
+                setConfirm(null);
+                if (!c) return;
+                if (c.kind === "tab") void removeWorkspace(c.id);
+                else if (c.kind === "section") void removeSection(c.id);
+                else void deleteReport(c.id);
+              }}
+            >
+              {t("workspaceConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

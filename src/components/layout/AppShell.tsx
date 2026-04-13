@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { Toaster } from "sonner";
 import { ThemeProvider } from "./ThemeProvider";
 import { LocaleProvider } from "@/lib/locale-context";
 import { AuthProvider } from "@/lib/auth-context";
@@ -31,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </TooltipProvider>
+          <Toaster richColors position="top-center" closeButton />
         </AuthProvider>
       </LocaleProvider>
     </ThemeProvider>

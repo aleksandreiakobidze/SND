@@ -76,6 +76,10 @@ function AgentPageContent() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTarget, setSaveTarget] = useState<AgentMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadedSavedReportRef = useRef<string | null>(null);
+
+  const savedReportId = searchParams.get("report");
+  const urlAskMode = searchParams.get("mode") === "ask";
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -90,6 +94,62 @@ function AgentPageContent() {
   useEffect(() => {
     if (!authLoading && !canAccessPage) router.replace("/");
   }, [authLoading, canAccessPage, router]);
+
+  useEffect(() => {
+    if (!savedReportId) loadedSavedReportRef.current = null;
+  }, [savedReportId]);
+
+  useEffect(() => {
+    if (!savedReportId || authLoading || !canUseAgent) return;
+    const uuidRx =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRx.test(savedReportId)) return;
+    if (loadedSavedReportRef.current === savedReportId) return;
+
+    if (canViewDashboard && urlAskMode) {
+      router.replace(`/agent?report=${encodeURIComponent(savedReportId)}`);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setAgentLoading(true);
+      try {
+        await fetch(`/api/reports/${savedReportId}/open`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const res = await fetch(`/api/reports/${savedReportId}/refresh`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          data?: Record<string, unknown>[];
+          chartConfig?: AgentResponse["chartConfig"];
+          narrative?: string;
+        };
+        if (cancelled || !res.ok) return;
+        const assistantMessage: AgentMessage = {
+          id: `saved-${savedReportId}`,
+          role: "assistant",
+          content: typeof json.narrative === "string" ? json.narrative : "",
+          narrative: typeof json.narrative === "string" ? json.narrative : undefined,
+          data: Array.isArray(json.data) ? json.data : [],
+          chartConfig: json.chartConfig ?? null,
+          timestamp: new Date(),
+        };
+        setAgentMessages([assistantMessage]);
+        setAgentSuggestions([]);
+        loadedSavedReportRef.current = savedReportId;
+        router.replace("/agent", { scroll: false });
+      } finally {
+        if (!cancelled) setAgentLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [savedReportId, authLoading, canUseAgent, canViewDashboard, urlAskMode, router]);
 
   async function handleSendAgent(question: string) {
     const userMessage: AgentMessage = {
@@ -267,6 +327,7 @@ function AgentPageContent() {
   }
 
   function handleNewChat() {
+    loadedSavedReportRef.current = null;
     if (mode === "agent") {
       setAgentMessages([]);
       setAgentSuggestions([]);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { executeReadOnlyQuery, validateReadOnlySql } from "@/lib/db";
-import { getSavedReportFull } from "@/lib/workspace-db";
+import { chartTypeFromConfig } from "@/lib/chart-config-meta";
+import { getSavedReportFull, updateSavedReportChartType } from "@/lib/workspace-db";
 import { requireAuth } from "@/lib/auth-route-helpers";
 import type { ChartConfig } from "@/types";
 import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
@@ -62,6 +63,11 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
           colors: storedConfig?.colors,
         }
       : storedConfig;
+
+    const ct = chartTypeFromConfig(chartConfig);
+    if (ct) {
+      await updateSavedReportChartType(auth.ctx.user.id, reportId, ct);
+    }
 
     return NextResponse.json({
       data: processed.data,

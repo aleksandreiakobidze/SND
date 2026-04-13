@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSavedReport } from "@/lib/workspace-db";
 import { validateReadOnlySql } from "@/lib/db";
+import { chartTypeFromConfig } from "@/lib/chart-config-meta";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canEditWorkspace } from "@/lib/auth-roles";
 import type { ChartConfig } from "@/types";
@@ -22,8 +23,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     const sqlText = typeof body.sql === "string" ? body.sql : null;
     const narrative = typeof body.narrative === "string" ? body.narrative : null;
     let chartConfigJson: string | null = null;
+    let chartType: string | null = null;
     if (body.chartConfig != null) {
-      chartConfigJson = JSON.stringify(body.chartConfig as ChartConfig);
+      const cfg = body.chartConfig as ChartConfig;
+      chartConfigJson = JSON.stringify(cfg);
+      chartType = chartTypeFromConfig(cfg);
     }
 
     if (!title.trim()) {
@@ -47,6 +51,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       sqlText,
       chartConfigJson,
       narrative,
+      chartType,
     });
     if (!created) return NextResponse.json({ error: "Section not found" }, { status: 404 });
     return NextResponse.json({ id: created.id });
