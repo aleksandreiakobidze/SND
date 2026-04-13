@@ -15,7 +15,7 @@ export function StickyFilterBlock({ children, className }: StickyFilterBlockProp
   return (
     <div
       className={cn(
-        "sticky top-0 z-10 -mx-6 space-y-4 px-6 py-5",
+        "sticky top-0 z-40 -mx-6 space-y-4 px-6 py-5",
         "border-b border-border/40 bg-background/90 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75",
         "shadow-[0_1px_0_0_oklch(1_0_0/5%)] dark:shadow-none",
         className,

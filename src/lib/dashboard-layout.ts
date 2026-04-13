@@ -1,5 +1,11 @@
 import type { ChartVariant } from "@/components/charts/FlexChart";
 import type { ChartMeasure } from "@/components/charts/ChartWrapper";
+import {
+  RECENT_TRANSACTIONS_COLUMN_IDS,
+  type RecentTransactionsColumnId,
+  isRecentTransactionsColumnId,
+  isRecentTxMeasureColumnId,
+} from "@/lib/recent-transactions-columns";
 
 /** Stable widget ids for the home dashboard (order is a permutation of these 8). */
 export const DASHBOARD_WIDGET_IDS = [
@@ -38,13 +44,71 @@ function allowedVariantsForChart(id: DashboardChartWidgetId): Set<ChartVariant> 
   return VARIANTS_DAILY;
 }
 
+export type RtViewMode = "table" | "matrix";
+
+export type RecentTransactionsMatrixPrefs = {
+  rowIds: RecentTransactionsColumnId[];
+  columnIds: RecentTransactionsColumnId[];
+  valueIds: RecentTransactionsColumnId[];
+};
+
+export type RecentTransactionsLayoutPrefs = {
+  columnOrder: RecentTransactionsColumnId[];
+  hiddenColumnIds: RecentTransactionsColumnId[];
+  /** Default `table` when omitted (legacy layouts). */
+  viewMode?: RtViewMode;
+  matrix?: RecentTransactionsMatrixPrefs;
+};
+
+export function getDefaultMatrixPrefs(): RecentTransactionsMatrixPrefs {
+  return {
+    rowIds: ["region", "brand"],
+    columnIds: ["month"],
+    valueIds: ["liter"],
+  };
+}
+
 export type DashboardLayout = {
   order: DashboardWidgetId[];
   variants: Partial<Record<DashboardChartWidgetId, ChartVariant>>;
   measureByChart: Partial<Record<DashboardChartWidgetId, ChartMeasure>>;
+  /** Optional; omitted = defaults (all columns visible, catalog order). */
+  recentTransactions?: RecentTransactionsLayoutPrefs;
 };
 
+export function reconcileTablePartitionWithMatrix(
+  columnOrder: RecentTransactionsColumnId[],
+  hiddenColumnIds: RecentTransactionsColumnId[],
+  matrix: RecentTransactionsMatrixPrefs,
+): { columnOrder: RecentTransactionsColumnId[]; hiddenColumnIds: RecentTransactionsColumnId[] } {
+  const assigned = new Set<RecentTransactionsColumnId>([
+    ...matrix.rowIds,
+    ...matrix.columnIds,
+    ...matrix.valueIds,
+  ]);
+  const unassigned = RECENT_TRANSACTIONS_COLUMN_IDS.filter((id) => !assigned.has(id));
+  let order = columnOrder.filter((id) => unassigned.includes(id));
+  let hidden = hiddenColumnIds.filter((id) => unassigned.includes(id));
+  const used = new Set<RecentTransactionsColumnId>([...order, ...hidden]);
+  for (const id of unassigned) {
+    if (!used.has(id)) hidden.push(id);
+    used.add(id);
+  }
+  hidden = hidden.filter((id) => !order.includes(id));
+  if (order.length < 1 && unassigned.length > 0) {
+    order = [unassigned[0]];
+    hidden = unassigned.filter((id) => id !== unassigned[0]);
+  }
+  return { columnOrder: order, hiddenColumnIds: hidden };
+}
+
+export function getDefaultRecentTransactionsLayoutPrefs(): RecentTransactionsLayoutPrefs {
+  return getDefaultDashboardLayout().recentTransactions!;
+}
+
 export function getDefaultDashboardLayout(): DashboardLayout {
+  const matrix = getDefaultMatrixPrefs();
+  const { columnOrder, hiddenColumnIds } = reconcileTablePartitionWithMatrix([], [], matrix);
   return {
     order: [...DASHBOARD_WIDGET_IDS],
     variants: {
@@ -53,6 +117,12 @@ export function getDefaultDashboardLayout(): DashboardLayout {
       "chart-daily-trend": "area",
     },
     measureByChart: {},
+    recentTransactions: {
+      columnOrder,
+      hiddenColumnIds,
+      viewMode: "table",
+      matrix,
+    },
   };
 }
 
@@ -68,6 +138,115 @@ function isChartVariant(v: unknown): v is ChartVariant {
 
 function isChartMeasure(v: unknown): v is ChartMeasure {
   return v === "money" || v === "liters";
+}
+
+const RT_CATALOG_LEN = RECENT_TRANSACTIONS_COLUMN_IDS.length;
+
+function getMatrixPrefsValidationError(m: unknown): string | null {
+  if (m === undefined || m === null) return null;
+  if (typeof m !== "object") return "recentTransactions.matrix must be an object";
+  const x = m as Record<string, unknown>;
+  if (!Array.isArray(x.rowIds)) return "recentTransactions.matrix.rowIds must be an array";
+  if (!Array.isArray(x.columnIds)) return "recentTransactions.matrix.columnIds must be an array";
+  if (!Array.isArray(x.valueIds)) return "recentTransactions.matrix.valueIds must be an array";
+  const rowIds = x.rowIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
+  const columnIds = x.columnIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
+  const valueIds = x.valueIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
+  if (rowIds.length !== x.rowIds.length) return "recentTransactions.matrix.rowIds has invalid id";
+  if (columnIds.length !== x.columnIds.length) return "recentTransactions.matrix.columnIds has invalid id";
+  if (valueIds.length !== x.valueIds.length) return "recentTransactions.matrix.valueIds has invalid id";
+  if (new Set(rowIds).size !== rowIds.length) return "recentTransactions.matrix.rowIds must not duplicate";
+  if (new Set(columnIds).size !== columnIds.length) return "recentTransactions.matrix.columnIds must not duplicate";
+  if (new Set(valueIds).size !== valueIds.length) return "recentTransactions.matrix.valueIds must not duplicate";
+  for (const id of rowIds) {
+    if (isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: row fields must be dimensions";
+  }
+  for (const id of columnIds) {
+    if (isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: column fields must be dimensions";
+  }
+  for (const id of valueIds) {
+    if (!isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: value fields must be measures";
+  }
+  const all = new Set<RecentTransactionsColumnId>();
+  for (const id of rowIds) {
+    if (all.has(id)) return "recentTransactions.matrix: a field cannot appear in multiple areas";
+    all.add(id);
+  }
+  for (const id of columnIds) {
+    if (all.has(id)) return "recentTransactions.matrix: a field cannot appear in multiple areas";
+    all.add(id);
+  }
+  for (const id of valueIds) {
+    if (all.has(id)) return "recentTransactions.matrix: a field cannot appear in multiple areas";
+    all.add(id);
+  }
+  if (valueIds.length < 1) return "recentTransactions.matrix: at least one value measure required";
+  return null;
+}
+
+function getRecentTransactionsPrefsValidationError(o: unknown): string | null {
+  if (o === undefined) return null;
+  if (o === null || typeof o !== "object") return "recentTransactions must be an object";
+  const x = o as Record<string, unknown>;
+  if (!Array.isArray(x.columnOrder)) return "recentTransactions.columnOrder must be an array";
+  if (!Array.isArray(x.hiddenColumnIds)) return "recentTransactions.hiddenColumnIds must be an array";
+  const order = x.columnOrder as unknown[];
+  const hidden = x.hiddenColumnIds as unknown[];
+  const orderIds = order.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
+  const hiddenIds = hidden.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
+  if (orderIds.length !== order.length) return "recentTransactions.columnOrder has invalid id";
+  if (hiddenIds.length !== hidden.length) return "recentTransactions.hiddenColumnIds has invalid id";
+  if (new Set(orderIds).size !== orderIds.length) return "recentTransactions.columnOrder must not duplicate ids";
+  if (new Set(hiddenIds).size !== hiddenIds.length) return "recentTransactions.hiddenColumnIds must not duplicate ids";
+  const orderSet = new Set(orderIds);
+  const hiddenSet = new Set(hiddenIds);
+  for (const h of hiddenIds) {
+    if (orderSet.has(h)) return "recentTransactions: column cannot be both ordered and hidden";
+  }
+
+  if (x.viewMode !== undefined) {
+    if (x.viewMode !== "table" && x.viewMode !== "matrix") return "recentTransactions.viewMode must be table or matrix";
+  }
+  const vm = x.viewMode === "matrix" ? "matrix" : "table";
+  if (vm === "matrix") {
+    if (x.matrix === undefined || x.matrix === null) return "recentTransactions.matrix is required in matrix view";
+  }
+
+  if (x.matrix !== undefined && x.matrix !== null) {
+    const mErr = getMatrixPrefsValidationError(x.matrix);
+    if (mErr) return mErr;
+  }
+
+  const matrixAssigned = new Set<RecentTransactionsColumnId>();
+  if (x.matrix && typeof x.matrix === "object") {
+    const mx = x.matrix as Record<string, unknown>;
+    const take = (a: unknown) =>
+      Array.isArray(a)
+        ? a.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id))
+        : [];
+    for (const id of [...take(mx.rowIds), ...take(mx.columnIds), ...take(mx.valueIds)]) {
+      matrixAssigned.add(id);
+    }
+  }
+
+  if (orderIds.length + hiddenIds.length + matrixAssigned.size !== RT_CATALOG_LEN) {
+    return "recentTransactions: visible columns, hidden columns, and matrix fields must partition the catalog";
+  }
+  for (const id of orderIds) {
+    if (matrixAssigned.has(id)) return "recentTransactions: field in both table and matrix";
+  }
+  for (const id of hiddenIds) {
+    if (matrixAssigned.has(id)) return "recentTransactions: field in both table and matrix";
+  }
+  for (const id of RECENT_TRANSACTIONS_COLUMN_IDS) {
+    const inTable = orderSet.has(id) || hiddenSet.has(id);
+    const inMatrix = matrixAssigned.has(id);
+    if (inTable && inMatrix) return "recentTransactions: field in both table and matrix";
+    if (!inTable && !inMatrix) return "recentTransactions: field missing from table and matrix";
+  }
+  if (orderIds.length < 1) return "recentTransactions: at least one visible column required";
+
+  return null;
 }
 
 export function getDashboardLayoutValidationError(raw: unknown): string | null {
@@ -107,6 +286,9 @@ export function getDashboardLayoutValidationError(raw: unknown): string | null {
     const val = measureByChart[key];
     if (!isChartMeasure(val)) return `measureByChart.${key} must be money or liters`;
   }
+
+  const rtErr = getRecentTransactionsPrefsValidationError(o.recentTransactions);
+  if (rtErr) return rtErr;
 
   return null;
 }
@@ -152,12 +334,55 @@ export function buildDashboardSegments(order: DashboardWidgetId[]): DashboardSeg
   return segments;
 }
 
+function sanitizeMatrixFromRemote(
+  m: RecentTransactionsMatrixPrefs | undefined,
+  fallback: RecentTransactionsMatrixPrefs,
+): RecentTransactionsMatrixPrefs {
+  if (!m) return { ...fallback };
+  const catalog = new Set<string>(RECENT_TRANSACTIONS_COLUMN_IDS);
+  const strip = (ids: RecentTransactionsColumnId[]) =>
+    ids.filter((id) => catalog.has(id) && isRecentTransactionsColumnId(id));
+  let rowIds = strip(m.rowIds).filter((id) => !isRecentTxMeasureColumnId(id));
+  let columnIds = strip(m.columnIds).filter((id) => !isRecentTxMeasureColumnId(id));
+  let valueIds = strip(m.valueIds).filter((id) => isRecentTxMeasureColumnId(id));
+  const seen = new Set<RecentTransactionsColumnId>();
+  rowIds = rowIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  columnIds = columnIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  valueIds = valueIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (valueIds.length < 1) return { ...fallback };
+  return { rowIds, columnIds, valueIds };
+}
+
 export function mergeRemoteDashboardLayout(remote: DashboardLayout | null): DashboardLayout {
   const d = getDefaultDashboardLayout();
   if (!remote || !validateDashboardLayout(remote)) return d;
+  const fallbackMatrix = d.recentTransactions?.matrix ?? getDefaultMatrixPrefs();
+  const rt = remote.recentTransactions;
+  const m = sanitizeMatrixFromRemote(rt?.matrix, fallbackMatrix);
+  const r = reconcileTablePartitionWithMatrix(rt?.columnOrder ?? [], rt?.hiddenColumnIds ?? [], m);
   return {
     order: [...remote.order],
     variants: { ...d.variants, ...remote.variants },
     measureByChart: { ...remote.measureByChart },
+    recentTransactions: rt
+      ? {
+          columnOrder: r.columnOrder,
+          hiddenColumnIds: r.hiddenColumnIds,
+          viewMode: rt.viewMode ?? "table",
+          matrix: m,
+        }
+      : d.recentTransactions,
   };
 }

@@ -16,7 +16,9 @@ export function buildDashboardQueries() {
   const prodT = rvaSql("PRODT");
   const idProd = rvaSql("IDPROD");
   const superCol = rvaSql("SUPER");
-  const cd = rvaSql("CD");
+  const org = rvaSql("ORG");
+  const raod = rvaSql("RAOD");
+  const realT = rvaSql("REALT");
 
   return {
     kpis: `
@@ -100,24 +102,29 @@ export function buildDashboardQueries() {
     ORDER BY Liters DESC
   `,
 
-    /** Line-level rows for selected filters (date range + cross-filters); preseller = Gvari per schema */
+    /** Dashboard sales report: line-level rows matching global filters (not a “latest N” sample). Aliases match recent-transactions-columns.ts.
+     *  No TOP / no “latest N only” ordering: a row cap would drop months outside that window under wide date filters. */
     recentTransactions: `
-    SELECT TOP 200
-      CONVERT(varchar, ${data}, 23) as Day,
+    SELECT
+      CONVERT(varchar, ${data}, 23) as Date,
       ${reg} as Region,
+      ${org} as Org,
+      ${orgT} as OrgType,
       ${prodS} as Category,
       ${prodT} as Brand,
-      ${orgT} as OrgType,
-      ${idProd} as IdProd,
+      ${realT} as SaleType,
+      ${idProd} as ItemCode,
       ${prod} as Product,
+      CAST(${raod} as float) as Qty,
       CAST(${tevadobaTotal} as float) as Liters,
       CAST(${fasi} as float) as Price,
       CAST(${tanxa} as float) as Amount,
       ${gvari} as Preseller,
       ${manag} as Manager,
-      ${superCol} as Supervisor
+      ${superCol} as Supervisor,
+      MONTH(${data}) as Month,
+      YEAR(${data}) as Year
     FROM RealViewAgent
-    ORDER BY ${cd} DESC
   `,
   };
 }

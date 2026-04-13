@@ -20,7 +20,7 @@ import { DollarSign, GripVertical, ShoppingCart, TrendingUp, Users } from "lucid
 import { KPICard } from "@/components/dashboard/KPICard";
 import { ChartWrapper, type ChartMeasure } from "@/components/charts/ChartWrapper";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
-import { DataTable } from "@/components/data-table/DataTable";
+import { RecentTransactionsTable } from "@/components/dashboard/RecentTransactionsTable";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/locale-context";
 import { formatCurrency } from "@/lib/formatCurrency";
@@ -29,9 +29,11 @@ import {
   type DashboardChartWidgetId,
   type DashboardLayout,
   type DashboardWidgetId,
+  type RecentTransactionsLayoutPrefs,
   buildDashboardSegments,
   getDefaultDashboardLayout,
   mergeRemoteDashboardLayout,
+  getDefaultRecentTransactionsLayoutPrefs,
 } from "@/lib/dashboard-layout";
 import type { FilterField } from "@/lib/filters";
 import type { DashboardData } from "@/types";
@@ -221,6 +223,17 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
 
   const sortableIds = layout.order.map(dashId);
 
+  const updateRecentTransactionsPrefs = useCallback(
+    (next: RecentTransactionsLayoutPrefs) => {
+      setLayout((prev) => {
+        const merged: DashboardLayout = { ...prev, recentTransactions: next };
+        schedulePersist(merged);
+        return merged;
+      });
+    },
+    [schedulePersist],
+  );
+
   const renderKpi = (id: DashboardWidgetId) => {
     if (id === "kpi-total-revenue") {
       return (
@@ -379,11 +392,14 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
         <SortableWidgetShell key={id} widgetId={id} canDrag={canDrag}>
           <div className="space-y-4">
             <h2 className="text-lg font-semibold tracking-tight">{t("recentTransactions")}</h2>
-            {loading ? (
-              <div className="h-64 animate-pulse rounded-lg bg-muted/30" />
-            ) : data ? (
-              <DataTable data={data.recentTransactions} title="recent_transactions" pageSize={10} />
-            ) : null}
+            <RecentTransactionsTable
+              data={data?.recentTransactions ?? null}
+              loading={loading}
+              prefs={layout.recentTransactions ?? getDefaultRecentTransactionsLayoutPrefs()}
+              onPrefsChange={updateRecentTransactionsPrefs}
+              canCustomize={canDrag}
+              t={t}
+            />
           </div>
         </SortableWidgetShell>
       );
