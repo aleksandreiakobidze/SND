@@ -6,8 +6,11 @@ import { useReport } from "@/lib/useReport";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import { ChartWrapper, type ChartMeasure } from "@/components/charts/ChartWrapper";
-import { formatCurrency } from "@/lib/formatCurrency";
-import { formatLiters } from "@/lib/formatLiters";
+import {
+  type ChartNumberStyle,
+  formatAxisForMeasure,
+  formatTooltipForMeasure,
+} from "@/lib/chart-number-format";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
 import { DataTable } from "@/components/data-table/DataTable";
 import { FilterBar } from "@/components/filters/FilterBar";
@@ -31,6 +34,8 @@ export default function ProductsReportPage() {
   const [categoryVariant, setCategoryVariant] = useState<ChartVariant>("pie");
   const [brandsVariant, setBrandsVariant] = useState<ChartVariant>("horizontal-bar");
   const [chartMeasure, setChartMeasure] = useState<ChartMeasure>("money");
+  const [chartNumberStyle, setChartNumberStyle] = useState<ChartNumberStyle>("compact");
+  const [showChartDataLabels, setShowChartDataLabels] = useState(true);
 
   const categoryAgg = data.reduce<Record<string, number>>((acc, row) => {
     const cat = String(row.Category || "");
@@ -64,6 +69,15 @@ export default function ProductsReportPage() {
     );
   }
 
+  const axisFmt = formatAxisForMeasure(chartMeasure, chartNumberStyle);
+  const tipFmt = formatTooltipForMeasure(chartMeasure);
+  const chartDisplayOpts = {
+    showDataLabels: showChartDataLabels,
+    onShowDataLabelsChange: setShowChartDataLabels,
+    numberStyle: chartNumberStyle,
+    onNumberStyleChange: setChartNumberStyle,
+  };
+
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
@@ -88,12 +102,15 @@ export default function ProductsReportPage() {
           variants={["pie", "bar", "horizontal-bar"]}
           activeVariant={categoryVariant}
           onVariantChange={setCategoryVariant}
+          {...chartDisplayOpts}
         >
           <FlexChart
             data={pieData}
             variant={categoryVariant}
-            formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+            formatter={axisFmt}
+            tooltipFormatter={tipFmt}
             tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
+            showDataLabels={showChartDataLabels}
             onElementClick={(name) => toggleCrossFilter("category", name)}
             highlightValue={getCrossFilterValue("category")}
           />
@@ -110,12 +127,15 @@ export default function ProductsReportPage() {
           variants={["horizontal-bar", "bar", "pie"]}
           activeVariant={brandsVariant}
           onVariantChange={setBrandsVariant}
+          {...chartDisplayOpts}
         >
           <FlexChart
             data={top15Brands}
             variant={brandsVariant}
-            formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+            formatter={axisFmt}
+            tooltipFormatter={tipFmt}
             tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
+            showDataLabels={showChartDataLabels}
             onElementClick={(name) => toggleCrossFilter("brand", name)}
             highlightValue={getCrossFilterValue("brand")}
           />

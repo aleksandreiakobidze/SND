@@ -39,10 +39,11 @@ function formatValue(value: number): string {
 }
 
 const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "8px",
   fontSize: 12,
+  color: "var(--card-foreground)",
 };
 
 interface Props {
@@ -101,7 +102,7 @@ export function DynamicChart({ data, config }: Props) {
     return (
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
           <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
           <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />
@@ -118,7 +119,7 @@ export function DynamicChart({ data, config }: Props) {
     return (
       <ResponsiveContainer width="100%" height={320}>
         <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
           <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
           <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />
@@ -133,7 +134,7 @@ export function DynamicChart({ data, config }: Props) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
         <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
         <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
         <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />

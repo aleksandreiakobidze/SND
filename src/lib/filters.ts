@@ -16,16 +16,26 @@ export interface FilterParams {
 
 export type FilterField = keyof Omit<FilterParams, "dateFrom" | "dateTo">;
 
+/**
+ * `YYYY-MM-DD` in the runtime's **local** calendar (browser or server TZ).
+ * `toISOString().slice(0, 10)` is UTC and wrong for business-day filters (e.g. Tbilisi after midnight local).
+ */
+export function localDateStr(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function todayStr(): string {
-  const d = new Date();
-  return d.toISOString().split("T")[0];
+  return localDateStr(new Date());
 }
 
 /** Calendar yesterday (same date logic as todayStr). */
 export function yesterdayStr(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().split("T")[0];
+  return localDateStr(d);
 }
 
 /** Same shape as query string used by `/api/dashboard` and `/api/reports` */
@@ -99,7 +109,7 @@ export function buildWhereClause(params: URLSearchParams): string {
 
   const dataCol = rvaSql("DATA");
   if (dateFrom) conditions.push(`${dataCol} >= '${sanitize(dateFrom)}'`);
-  if (dateTo) conditions.push(`${dataCol} <= '${sanitize(dateTo)} 23:59:59'`);
+  if (dateTo) conditions.push(sqlDataBeforeNextDay(dataCol, dateTo));
 
   conditions.push(...buildNonDateConditions(params));
 
@@ -109,6 +119,16 @@ export function buildWhereClause(params: URLSearchParams): string {
 
 function sanitize(value: string): string {
   return value.replace(/'/g, "''").replace(/;/g, "").replace(/--/g, "");
+}
+
+/**
+ * Exclusive end of a calendar-day range for `smalldatetime` date columns (e.g. `Data`).
+ * Inclusive calendar range `[dateFrom, dateTo]` → `>= dateFrom AND < DATEADD(DAY, 1, dateTo)`.
+ * Never use `<= '… 23:59:59'` — `smalldatetime` rounding can include the next calendar day.
+ */
+export function sqlDataBeforeNextDay(dataColumnSql: string, endDateYmd: string): string {
+  const s = sanitize(endDateYmd);
+  return `${dataColumnSql} < DATEADD(DAY, 1, '${s}')`;
 }
 
 export function injectWhere(query: string, whereClause: string): string {

@@ -20,6 +20,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DynamicChart } from "@/components/charts/DynamicChart";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
+import { defaultChartValueFormat, formatCurrencyFull } from "@/lib/chart-number-format";
 import { DataTable } from "@/components/data-table/DataTable";
 import { useLocale } from "@/lib/locale-context";
 import type { SavedReportMeta } from "@/lib/workspace-db";
@@ -359,11 +360,9 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                         nameKey={nameKey}
                         valueKeys={valueKeys}
                         height={320}
-                        formatter={(v) => {
-                          if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-                          if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-                          return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-                        }}
+                        formatter={defaultChartValueFormat}
+                        tooltipFormatter={formatCurrencyFull}
+                        showDataLabels
                       />
                     );
                   })()

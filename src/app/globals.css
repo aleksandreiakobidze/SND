@@ -207,3 +207,11 @@
 .dark ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.8 0.05 265 / 35%);
 }
+
+/* Recharts: axis/pie label text must use theme foreground (tokens are oklch, not hsl components). */
+.recharts-wrapper .recharts-cartesian-axis-tick-value {
+  fill: var(--foreground);
+}
+.recharts-wrapper .recharts-pie-label-text {
+  fill: var(--foreground);
+}

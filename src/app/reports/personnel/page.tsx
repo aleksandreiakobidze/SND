@@ -6,8 +6,11 @@ import { useReport } from "@/lib/useReport";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import { ChartWrapper, type ChartMeasure } from "@/components/charts/ChartWrapper";
-import { formatCurrency } from "@/lib/formatCurrency";
-import { formatLiters } from "@/lib/formatLiters";
+import {
+  type ChartNumberStyle,
+  formatAxisForMeasure,
+  formatTooltipForMeasure,
+} from "@/lib/chart-number-format";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
 import { DataTable } from "@/components/data-table/DataTable";
 import { FilterBar } from "@/components/filters/FilterBar";
@@ -37,6 +40,8 @@ export default function PersonnelReportPage() {
   const [salesVariant, setSalesVariant] = useState<ChartVariant>("horizontal-bar");
   const [drvVariant, setDrvVariant] = useState<ChartVariant>("horizontal-bar");
   const [chartMeasure, setChartMeasure] = useState<ChartMeasure>("money");
+  const [chartNumberStyle, setChartNumberStyle] = useState<ChartNumberStyle>("compact");
+  const [showChartDataLabels, setShowChartDataLabels] = useState(true);
 
   const activeReport =
     tab === "managers" ? managers : tab === "salesmen" ? salesmen : drivers;
@@ -67,6 +72,15 @@ export default function PersonnelReportPage() {
       </div>
     );
   }
+
+  const axisFmt = formatAxisForMeasure(chartMeasure, chartNumberStyle);
+  const tipFmt = formatTooltipForMeasure(chartMeasure);
+  const chartDisplayOpts = {
+    showDataLabels: showChartDataLabels,
+    onShowDataLabelsChange: setShowChartDataLabels,
+    numberStyle: chartNumberStyle,
+    onNumberStyleChange: setChartNumberStyle,
+  };
 
   return (
     <div className="relative min-h-full">
@@ -99,13 +113,16 @@ export default function PersonnelReportPage() {
             variants={["bar", "horizontal-bar", "pie"]}
             activeVariant={mgrVariant}
             onVariantChange={setMgrVariant}
+            {...chartDisplayOpts}
           >
             <FlexChart
               data={mgrChartData}
               variant={mgrVariant}
-              formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
               tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
               height={350}
+              showDataLabels={showChartDataLabels}
               leftMargin={mgrVariant === "horizontal-bar" ? 100 : undefined}
               onElementClick={(name) => toggleCrossFilter("manager", name)}
               highlightValue={getCrossFilterValue("manager")}
@@ -131,13 +148,16 @@ export default function PersonnelReportPage() {
             variants={["horizontal-bar", "bar", "pie"]}
             activeVariant={salesVariant}
             onVariantChange={setSalesVariant}
+            {...chartDisplayOpts}
           >
             <FlexChart
               data={salesmenChartData}
               variant={salesVariant}
-              formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
               tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
               height={400}
+              showDataLabels={showChartDataLabels}
               leftMargin={salesVariant === "horizontal-bar" ? 120 : undefined}
             />
           </ChartWrapper>
@@ -161,13 +181,16 @@ export default function PersonnelReportPage() {
             variants={["horizontal-bar", "bar", "pie"]}
             activeVariant={drvVariant}
             onVariantChange={setDrvVariant}
+            {...chartDisplayOpts}
           >
             <FlexChart
               data={driverChartData}
               variant={drvVariant}
-              formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
               tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
               height={400}
+              showDataLabels={showChartDataLabels}
               leftMargin={drvVariant === "horizontal-bar" ? 120 : undefined}
             />
           </ChartWrapper>

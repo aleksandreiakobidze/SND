@@ -1,5 +1,6 @@
 import type { ChartVariant } from "@/components/charts/FlexChart";
 import type { ChartMeasure } from "@/components/charts/ChartWrapper";
+import type { ChartNumberStyle } from "@/lib/chart-number-format";
 import {
   RECENT_TRANSACTIONS_COLUMN_IDS,
   type RecentTransactionsColumnId,
@@ -68,10 +69,18 @@ export function getDefaultMatrixPrefs(): RecentTransactionsMatrixPrefs {
   };
 }
 
+/** Global chart UI preferences for the home dashboard (data labels, number style). */
+export type ChartPrefs = {
+  showDataLabels: boolean;
+  numberStyle: ChartNumberStyle;
+};
+
 export type DashboardLayout = {
   order: DashboardWidgetId[];
   variants: Partial<Record<DashboardChartWidgetId, ChartVariant>>;
   measureByChart: Partial<Record<DashboardChartWidgetId, ChartMeasure>>;
+  /** Optional; omitted = defaults (labels on, compact numbers). */
+  chartPrefs?: ChartPrefs;
   /** Optional; omitted = defaults (all columns visible, catalog order). */
   recentTransactions?: RecentTransactionsLayoutPrefs;
 };
@@ -117,6 +126,10 @@ export function getDefaultDashboardLayout(): DashboardLayout {
       "chart-daily-trend": "area",
     },
     measureByChart: {},
+    chartPrefs: {
+      showDataLabels: true,
+      numberStyle: "compact",
+    },
     recentTransactions: {
       columnOrder,
       hiddenColumnIds,
@@ -138,6 +151,23 @@ function isChartVariant(v: unknown): v is ChartVariant {
 
 function isChartMeasure(v: unknown): v is ChartMeasure {
   return v === "money" || v === "liters";
+}
+
+function isChartNumberStyle(v: unknown): v is ChartNumberStyle {
+  return v === "compact" || v === "full";
+}
+
+function getChartPrefsValidationError(o: unknown): string | null {
+  if (o === undefined || o === null) return null;
+  if (typeof o !== "object") return "chartPrefs must be an object";
+  const x = o as Record<string, unknown>;
+  if (x.showDataLabels !== undefined && typeof x.showDataLabels !== "boolean") {
+    return "chartPrefs.showDataLabels must be a boolean";
+  }
+  if (x.numberStyle !== undefined && !isChartNumberStyle(x.numberStyle)) {
+    return "chartPrefs.numberStyle must be compact or full";
+  }
+  return null;
 }
 
 const RT_CATALOG_LEN = RECENT_TRANSACTIONS_COLUMN_IDS.length;
@@ -287,6 +317,9 @@ export function getDashboardLayoutValidationError(raw: unknown): string | null {
     if (!isChartMeasure(val)) return `measureByChart.${key} must be money or liters`;
   }
 
+  const cpErr = getChartPrefsValidationError(o.chartPrefs);
+  if (cpErr) return cpErr;
+
   const rtErr = getRecentTransactionsPrefsValidationError(o.recentTransactions);
   if (rtErr) return rtErr;
 
@@ -365,6 +398,15 @@ function sanitizeMatrixFromRemote(
   return { rowIds, columnIds, valueIds };
 }
 
+function mergeChartPrefs(remote: ChartPrefs | undefined, fallback: ChartPrefs): ChartPrefs {
+  if (!remote || typeof remote !== "object") return { ...fallback };
+  return {
+    showDataLabels:
+      typeof remote.showDataLabels === "boolean" ? remote.showDataLabels : fallback.showDataLabels,
+    numberStyle: isChartNumberStyle(remote.numberStyle) ? remote.numberStyle : fallback.numberStyle,
+  };
+}
+
 export function mergeRemoteDashboardLayout(remote: DashboardLayout | null): DashboardLayout {
   const d = getDefaultDashboardLayout();
   if (!remote || !validateDashboardLayout(remote)) return d;
@@ -372,10 +414,12 @@ export function mergeRemoteDashboardLayout(remote: DashboardLayout | null): Dash
   const rt = remote.recentTransactions;
   const m = sanitizeMatrixFromRemote(rt?.matrix, fallbackMatrix);
   const r = reconcileTablePartitionWithMatrix(rt?.columnOrder ?? [], rt?.hiddenColumnIds ?? [], m);
+  const baseCp = d.chartPrefs!;
   return {
     order: [...remote.order],
     variants: { ...d.variants, ...remote.variants },
     measureByChart: { ...remote.measureByChart },
+    chartPrefs: mergeChartPrefs(remote.chartPrefs, baseCp),
     recentTransactions: rt
       ? {
           columnOrder: r.columnOrder,

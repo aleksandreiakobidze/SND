@@ -1,3 +1,5 @@
+import { sqlDataBeforeNextDay } from "@/lib/filters";
+
 const IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
@@ -58,8 +60,9 @@ export function buildOnlineWhereClause(params: URLSearchParams, c: OnlineColumnM
 
   const dateFrom = params.get("dateFrom");
   const dateTo = params.get("dateTo");
-  if (dateFrom) conditions.push(`${sqlIdent(c.data)} >= '${sanitize(dateFrom)}'`);
-  if (dateTo) conditions.push(`${sqlIdent(c.data)} <= '${sanitize(dateTo)} 23:59:59'`);
+  const dataCol = sqlIdent(c.data);
+  if (dateFrom) conditions.push(`${dataCol} >= '${sanitize(dateFrom)}'`);
+  if (dateTo) conditions.push(sqlDataBeforeNextDay(dataCol, dateTo));
 
   for (const [paramKey, colKey] of Object.entries(ONLINE_FILTER_MAP)) {
     const raw = params.get(paramKey);

@@ -23,12 +23,13 @@ import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
 import { RecentTransactionsTable } from "@/components/dashboard/RecentTransactionsTable";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/locale-context";
+import { formatAxisForMeasure, formatTooltipForMeasure } from "@/lib/chart-number-format";
 import { formatCurrency } from "@/lib/formatCurrency";
-import { formatLiters } from "@/lib/formatLiters";
 import {
   type DashboardChartWidgetId,
   type DashboardLayout,
   type DashboardWidgetId,
+  type ChartPrefs,
   type RecentTransactionsLayoutPrefs,
   buildDashboardSegments,
   getDefaultDashboardLayout,
@@ -205,6 +206,18 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
 
   const measureFor = (id: DashboardChartWidgetId): ChartMeasure => layout.measureByChart[id] ?? "money";
 
+  const chartPrefs: ChartPrefs = layout.chartPrefs ?? getDefaultDashboardLayout().chartPrefs!;
+
+  const setChartPrefs = (patch: Partial<ChartPrefs>) => {
+    setLayout((prev) => {
+      const base = getDefaultDashboardLayout().chartPrefs!;
+      const cur: ChartPrefs = { ...base, ...prev.chartPrefs, ...patch };
+      const next: DashboardLayout = { ...prev, chartPrefs: cur };
+      schedulePersist(next);
+      return next;
+    });
+  };
+
   const setVariant = (id: DashboardChartWidgetId, v: ChartVariant) => {
     setLayout((prev) => {
       const next = { ...prev, variants: { ...prev.variants, [id]: v } };
@@ -281,6 +294,14 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
   const renderChart = (id: DashboardChartWidgetId) => {
     const v = variantFor(id);
     const m = measureFor(id);
+    const axisFmt = formatAxisForMeasure(m, chartPrefs.numberStyle);
+    const tipFmt = formatTooltipForMeasure(m);
+    const chartControlProps = {
+      showDataLabels: chartPrefs.showDataLabels,
+      onShowDataLabelsChange: (next: boolean) => setChartPrefs({ showDataLabels: next }),
+      numberStyle: chartPrefs.numberStyle,
+      onNumberStyleChange: (ns: ChartPrefs["numberStyle"]) => setChartPrefs({ numberStyle: ns }),
+    };
     if (id === "chart-revenue-by-region") {
       return (
         <ChartWrapper
@@ -294,13 +315,16 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
           variants={["bar", "pie", "horizontal-bar"]}
           activeVariant={v}
           onVariantChange={(nv) => setVariant(id, nv)}
+          {...chartControlProps}
         >
           {data && (
             <FlexChart
               data={m === "money" ? data.revenueByRegion : data.litersByRegion}
               variant={v}
-              formatter={m === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
               tooltipLabel={m === "money" ? t("revenue") : t("liters")}
+              showDataLabels={chartPrefs.showDataLabels}
               onElementClick={(name) => toggleCrossFilter("region", name)}
               highlightValue={getCrossFilterValue("region")}
             />
@@ -321,13 +345,16 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
           variants={["pie", "bar", "horizontal-bar"]}
           activeVariant={v}
           onVariantChange={(nv) => setVariant(id, nv)}
+          {...chartControlProps}
         >
           {data && (
             <FlexChart
               data={m === "money" ? data.salesByCategory : data.litersBySalesCategory}
               variant={v}
-              formatter={m === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
               tooltipLabel={m === "money" ? t("revenue") : t("liters")}
+              showDataLabels={chartPrefs.showDataLabels}
               onElementClick={(name) => toggleCrossFilter("category", name)}
               highlightValue={getCrossFilterValue("category")}
             />
@@ -348,6 +375,7 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
           variants={["area", "line", "bar"]}
           activeVariant={v}
           onVariantChange={(nv) => setVariant(id, nv)}
+          {...chartControlProps}
         >
           {data && (
             <FlexChart
@@ -358,7 +386,9 @@ export function DashboardWidgets({ data, loading, t, toggleCrossFilter, getCross
                   ? { key: "Revenue", label: t("revenue"), color: "hsl(220, 70%, 55%)" }
                   : { key: "Liters", label: t("liters"), color: "hsl(220, 70%, 55%)" },
               ]}
-              formatter={m === "money" ? formatCurrency : formatLiters}
+              formatter={axisFmt}
+              tooltipFormatter={tipFmt}
+              showDataLabels={chartPrefs.showDataLabels}
               colorful={false}
             />
           )}

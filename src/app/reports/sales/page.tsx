@@ -6,8 +6,11 @@ import { useReport } from "@/lib/useReport";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import { ChartWrapper, type ChartMeasure } from "@/components/charts/ChartWrapper";
-import { formatCurrency } from "@/lib/formatCurrency";
-import { formatLiters } from "@/lib/formatLiters";
+import {
+  type ChartNumberStyle,
+  formatAxisForMeasure,
+  formatTooltipForMeasure,
+} from "@/lib/chart-number-format";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
 import { DataTable } from "@/components/data-table/DataTable";
 import { FilterBar } from "@/components/filters/FilterBar";
@@ -29,6 +32,8 @@ export default function SalesReportPage() {
   const { data, loading, error } = useReport("salesByRegionDetailed", filters, ready);
   const [chartVariant, setChartVariant] = useState<ChartVariant>("bar");
   const [chartMeasure, setChartMeasure] = useState<ChartMeasure>("money");
+  const [chartNumberStyle, setChartNumberStyle] = useState<ChartNumberStyle>("compact");
+  const [showChartDataLabels, setShowChartDataLabels] = useState(true);
 
   const regionAgg = data.reduce<Record<string, number>>((acc, row) => {
     const reg = String(row.Region || "");
@@ -73,13 +78,19 @@ export default function SalesReportPage() {
         variants={["bar", "pie", "horizontal-bar"]}
         activeVariant={chartVariant}
         onVariantChange={setChartVariant}
+        showDataLabels={showChartDataLabels}
+        onShowDataLabelsChange={setShowChartDataLabels}
+        numberStyle={chartNumberStyle}
+        onNumberStyleChange={setChartNumberStyle}
       >
         <FlexChart
           data={regionChartData}
           variant={chartVariant}
-          formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+          formatter={formatAxisForMeasure(chartMeasure, chartNumberStyle)}
+          tooltipFormatter={formatTooltipForMeasure(chartMeasure)}
           tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
           height={350}
+          showDataLabels={showChartDataLabels}
           onElementClick={(name) => toggleCrossFilter("region", name)}
           highlightValue={getCrossFilterValue("region")}
         />

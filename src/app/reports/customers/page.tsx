@@ -7,8 +7,12 @@ import { useReport } from "@/lib/useReport";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import { ChartWrapper, type ChartMeasure } from "@/components/charts/ChartWrapper";
+import {
+  type ChartNumberStyle,
+  formatAxisForMeasure,
+  formatTooltipForMeasure,
+} from "@/lib/chart-number-format";
 import { formatCurrency } from "@/lib/formatCurrency";
-import { formatLiters } from "@/lib/formatLiters";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
 import { DataTable } from "@/components/data-table/DataTable";
 import { FilterBar } from "@/components/filters/FilterBar";
@@ -48,6 +52,8 @@ export default function CustomersReportPage() {
   const [custVariant, setCustVariant] = useState<ChartVariant>("horizontal-bar");
   const [catVariant, setCatVariant] = useState<ChartVariant>("pie");
   const [chartMeasure, setChartMeasure] = useState<ChartMeasure>("money");
+  const [chartNumberStyle, setChartNumberStyle] = useState<ChartNumberStyle>("compact");
+  const [showChartDataLabels, setShowChartDataLabels] = useState(true);
 
   const error =
     topCustomers.error ||
@@ -73,6 +79,15 @@ export default function CustomersReportPage() {
       </div>
     );
   }
+
+  const axisFmt = formatAxisForMeasure(chartMeasure, chartNumberStyle);
+  const tipFmt = formatTooltipForMeasure(chartMeasure);
+  const chartDisplayOpts = {
+    showDataLabels: showChartDataLabels,
+    onShowDataLabelsChange: setShowChartDataLabels,
+    numberStyle: chartNumberStyle,
+    onNumberStyleChange: setChartNumberStyle,
+  };
 
   return (
     <div className="relative min-h-full">
@@ -104,13 +119,16 @@ export default function CustomersReportPage() {
               variants={["horizontal-bar", "bar", "pie"]}
               activeVariant={custVariant}
               onVariantChange={setCustVariant}
+              {...chartDisplayOpts}
             >
               <FlexChart
                 data={custChartData}
                 variant={custVariant}
-                formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+                formatter={axisFmt}
+                tooltipFormatter={tipFmt}
                 tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
                 height={350}
+                showDataLabels={showChartDataLabels}
                 leftMargin={custVariant === "horizontal-bar" ? 120 : undefined}
               />
             </ChartWrapper>
@@ -126,13 +144,16 @@ export default function CustomersReportPage() {
               variants={["pie", "bar", "horizontal-bar"]}
               activeVariant={catVariant}
               onVariantChange={setCatVariant}
+              {...chartDisplayOpts}
             >
               <FlexChart
                 data={catChartData}
                 variant={catVariant}
-                formatter={chartMeasure === "money" ? formatCurrency : formatLiters}
+                formatter={axisFmt}
+                tooltipFormatter={tipFmt}
                 tooltipLabel={chartMeasure === "money" ? t("revenue") : t("liters")}
                 height={350}
+                showDataLabels={showChartDataLabels}
                 onElementClick={(name) => toggleCrossFilter("customerCategory", name)}
                 highlightValue={getCrossFilterValue("customerCategory")}
               />

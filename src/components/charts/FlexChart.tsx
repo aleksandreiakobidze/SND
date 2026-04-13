@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import {
   BarChart,
   Bar,
@@ -16,8 +17,11 @@ import {
   Area,
   LineChart,
   Line,
+  LabelList,
 } from "recharts";
 import { colorForObjectTypeLabel } from "@/lib/map-object-type-colors";
+import { defaultChartValueFormat } from "@/lib/chart-number-format";
+import { BarDataLabel } from "@/components/charts/BarDataLabel";
 
 export type ChartVariant = "bar" | "horizontal-bar" | "pie" | "area" | "line";
 
@@ -36,18 +40,17 @@ const COLORS = [
   "hsl(0, 60%, 55%)",
 ];
 
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+/** Theme tokens are oklch — never wrap in hsl(); use var() for SVG/CSS. */
+const tooltipStyle: CSSProperties = {
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: "8px",
   fontSize: 12,
+  color: "var(--card-foreground)",
 };
 
-function defaultFormat(value: number): string {
-  if (value >= 1_000_000) return `₾${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `₾${(value / 1_000).toFixed(1)}K`;
-  return `₾${value.toFixed(0)}`;
-}
+const axisTick10 = { fontSize: 10, fill: "var(--foreground)" as const };
+const axisTick11 = { fontSize: 11, fill: "var(--foreground)" as const };
 
 export interface FlexChartProps {
   data: Record<string, unknown>[];
@@ -56,12 +59,17 @@ export interface FlexChartProps {
   valueKey?: string;
   valueKeys?: { key: string; label: string; color?: string }[];
   height?: number;
+  /** Axis ticks, bar labels, pie slice text (compact or full — parent decides). */
   formatter?: (v: number) => string;
+  /** Tooltip always shows precise values when provided; defaults to `formatter`. */
+  tooltipFormatter?: (v: number) => string;
   tooltipLabel?: string;
   colorful?: boolean;
   leftMargin?: number;
   onElementClick?: (name: string) => void;
   highlightValue?: string;
+  /** Show numeric labels on bars; line/area ignore. Default true. */
+  showDataLabels?: boolean;
 }
 
 function cellOpacity(
@@ -79,14 +87,17 @@ export function FlexChart({
   valueKey = "value",
   valueKeys,
   height = 320,
-  formatter = defaultFormat,
+  formatter = defaultChartValueFormat,
+  tooltipFormatter,
   tooltipLabel = "Value",
   colorful = true,
   leftMargin,
   onElementClick,
   highlightValue,
+  showDataLabels = true,
 }: FlexChartProps) {
   const series = valueKeys || [{ key: valueKey, label: tooltipLabel, color: COLORS[0] }];
+  const tipFmt = tooltipFormatter ?? formatter;
   const interactive = !!onElementClick;
   const cursorStyle = interactive ? "pointer" : "default";
 
@@ -111,9 +122,12 @@ export function FlexChart({
             innerRadius={Math.max(40, height * 0.15)}
             outerRadius={Math.max(70, height * 0.28)}
             paddingAngle={3}
-            label={({ name, percent }) =>
-              `${String(name).length > 12 ? String(name).slice(0, 12) + "…" : name} ${((percent || 0) * 100).toFixed(0)}%`
-            }
+            label={({ name, percent, value }) => {
+              const short =
+                String(name).length > 10 ? String(name).slice(0, 10) + "…" : String(name);
+              const val = formatter(Number(value));
+              return `${short} ${val} (${((percent || 0) * 100).toFixed(0)}%)`;
+            }}
             labelLine={false}
             onClick={handleClick}
             style={{ cursor: cursorStyle }}
@@ -123,13 +137,17 @@ export function FlexChart({
                 key={i}
                 fill={colorForObjectTypeLabel(String(d[nameKey]))}
                 opacity={cellOpacity(d[nameKey], highlightValue)}
-                stroke={String(d[nameKey]) === highlightValue ? "hsl(var(--foreground))" : undefined}
+                stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
                 strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
               />
             ))}
           </Pie>
-          <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatter(Number(v)), series[0].label]} />
-          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v) => [tipFmt(Number(v)), series[0].label]} />
+          <Legend
+            iconType="circle"
+            iconSize={8}
+            wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }}
+          />
         </PieChart>
       </ResponsiveContainer>
     );
@@ -139,7 +157,7 @@ export function FlexChart({
     return (
       <ResponsiveContainer width="100%" height={height}>
         {variant === "area" ? (
-          <AreaChart data={data} margin={{ top: 5, right: 20, left: leftMargin ?? 10, bottom: 5 }}>
+          <AreaChart data={data} margin={{ top: 8, right: 20, left: leftMargin ?? 10, bottom: 8 }}>
             <defs>
               {series.map((s, i) => (
                 <linearGradient key={s.key} id={`grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -148,11 +166,13 @@ export function FlexChart({
                 </linearGradient>
               ))}
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-            <XAxis dataKey={nameKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatter} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatter(Number(v)), String(name)]} />
-            {series.length > 1 && <Legend />}
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} />
+            <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+            {series.length > 1 && (
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+            )}
             {series.map((s, i) => (
               <Area
                 key={s.key}
@@ -166,12 +186,14 @@ export function FlexChart({
             ))}
           </AreaChart>
         ) : (
-          <LineChart data={data} margin={{ top: 5, right: 20, left: leftMargin ?? 10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-            <XAxis dataKey={nameKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatter} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatter(Number(v)), String(name)]} />
-            {series.length > 1 && <Legend />}
+          <LineChart data={data} margin={{ top: 8, right: 20, left: leftMargin ?? 10, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} />
+            <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+            {series.length > 1 && (
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+            )}
             {series.map((s, i) => (
               <Line
                 key={s.key}
@@ -191,6 +213,9 @@ export function FlexChart({
   }
 
   const isHorizontal = variant === "horizontal-bar";
+  const labelMarginTop = showDataLabels && !isHorizontal ? 26 : 8;
+  const labelMarginRight = showDataLabels && isHorizontal ? 64 : 20;
+  const showBarLabels = showDataLabels && series.length === 1;
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -198,34 +223,42 @@ export function FlexChart({
         data={data}
         layout={isHorizontal ? "vertical" : "horizontal"}
         margin={{
-          top: 5,
-          right: 20,
-          left: isHorizontal ? (leftMargin ?? 80) : (leftMargin ?? 10),
-          bottom: 5,
+          top: labelMarginTop,
+          right: labelMarginRight,
+          left: isHorizontal ? (leftMargin ?? 80) : (leftMargin ?? 12),
+          bottom: 8,
         }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
         {isHorizontal ? (
           <>
-            <XAxis type="number" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatter} />
+            <XAxis
+              type="number"
+              tick={axisTick11}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatter}
+            />
             <YAxis
               dataKey={nameKey}
               type="category"
-              tick={{ fontSize: 10 }}
+              tick={axisTick10}
               tickLine={false}
               axisLine={false}
               width={leftMargin ? leftMargin - 5 : 75}
-              tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + "…" : v}
+              tickFormatter={(v: string) => (v.length > 18 ? v.slice(0, 18) + "…" : v)}
             />
           </>
         ) : (
           <>
-            <XAxis dataKey={nameKey} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatter} />
+            <XAxis dataKey={nameKey} tick={axisTick11} tickLine={false} axisLine={false} />
+            <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
           </>
         )}
-        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatter(Number(v)), String(name)]} />
-        {series.length > 1 && <Legend />}
+        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+        {series.length > 1 && (
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+        )}
         {series.map((s, i) => (
           <Bar
             key={s.key}
@@ -243,7 +276,7 @@ export function FlexChart({
                     key={idx}
                     fill={colorForObjectTypeLabel(String(d[nameKey]))}
                     opacity={cellOpacity(d[nameKey], highlightValue)}
-                    stroke={String(d[nameKey]) === highlightValue ? "hsl(var(--foreground))" : undefined}
+                    stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
                     strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
                   />
                 ))
@@ -252,10 +285,26 @@ export function FlexChart({
                     key={idx}
                     fill={s.color || COLORS[i]}
                     opacity={cellOpacity(d[nameKey], highlightValue)}
-                    stroke={String(d[nameKey]) === highlightValue ? "hsl(var(--foreground))" : undefined}
+                    stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
                     strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
                   />
                 ))}
+            {showBarLabels ? (
+              <LabelList
+                dataKey={s.key}
+                content={(props) => (
+                  <BarDataLabel
+                    x={props.x as number | undefined}
+                    y={props.y as number | undefined}
+                    width={props.width as number | undefined}
+                    height={props.height as number | undefined}
+                    value={props.value as number | undefined}
+                    isHorizontalBar={isHorizontal}
+                    formatLabel={formatter}
+                  />
+                )}
+              />
+            ) : null}
           </Bar>
         ))}
       </BarChart>

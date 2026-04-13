@@ -2,8 +2,19 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart3, PieChart as PieIcon, TrendingUp, ArrowRightLeft, AreaChart as AreaIcon } from "lucide-react";
+import {
+  BarChart3,
+  PieChart as PieIcon,
+  TrendingUp,
+  ArrowRightLeft,
+  AreaChart as AreaIcon,
+  Tags,
+  Shrink,
+  Expand,
+} from "lucide-react";
 import type { ChartVariant } from "./FlexChart";
+import type { ChartNumberStyle } from "@/lib/chart-number-format";
+import { useLocale } from "@/lib/locale-context";
 
 export type ChartMeasure = "money" | "liters";
 
@@ -36,6 +47,11 @@ interface ChartWrapperProps {
   variants?: ChartVariant[];
   activeVariant?: ChartVariant;
   onVariantChange?: (v: ChartVariant) => void;
+  /** When set with handlers, shows data-label and number-format toggles (dashboard). */
+  showDataLabels?: boolean;
+  onShowDataLabelsChange?: (v: boolean) => void;
+  numberStyle?: ChartNumberStyle;
+  onNumberStyleChange?: (s: ChartNumberStyle) => void;
 }
 
 export function ChartWrapper({
@@ -51,7 +67,18 @@ export function ChartWrapper({
   variants,
   activeVariant,
   onVariantChange,
+  showDataLabels,
+  onShowDataLabelsChange,
+  numberStyle,
+  onNumberStyleChange,
 }: ChartWrapperProps) {
+  const { t } = useLocale();
+  const showDisplayToggles =
+    onShowDataLabelsChange != null &&
+    onNumberStyleChange != null &&
+    typeof showDataLabels === "boolean" &&
+    (numberStyle === "compact" || numberStyle === "full");
+
   if (loading) {
     return (
       <Card className={className}>
@@ -103,6 +130,56 @@ export function ChartWrapper({
                 </button>
               </div>
             )}
+            {showDisplayToggles ? (
+              <div
+                className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-muted/50 p-0.5 dark:bg-muted/30"
+                role="group"
+                aria-label={t("chartDisplayOptionsTitle")}
+              >
+                <button
+                  type="button"
+                  aria-pressed={showDataLabels}
+                  onClick={() => onShowDataLabelsChange(!showDataLabels)}
+                  title={t("chartToggleDataLabels")}
+                  className={`flex items-center rounded-lg px-2 py-1 text-xs font-medium transition-all ${
+                    showDataLabels
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Tags className="h-3.5 w-3.5" />
+                  <span className="ml-1 hidden lg:inline max-w-[9rem] truncate">{t("chartToggleDataLabels")}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={numberStyle === "compact"}
+                  onClick={() => onNumberStyleChange("compact")}
+                  title={t("chartNumberStyleCompact")}
+                  className={`flex items-center rounded-lg px-2 py-1 text-xs font-medium transition-all ${
+                    numberStyle === "compact"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Shrink className="h-3.5 w-3.5" />
+                  <span className="ml-1 hidden md:inline">K</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={numberStyle === "full"}
+                  onClick={() => onNumberStyleChange("full")}
+                  title={t("chartNumberStyleFull")}
+                  className={`flex items-center rounded-lg px-2 py-1 text-xs font-medium transition-all ${
+                    numberStyle === "full"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Expand className="h-3.5 w-3.5" />
+                  <span className="ml-1 hidden md:inline">#</span>
+                </button>
+              </div>
+            ) : null}
             {variants && variants.length > 1 && onVariantChange && (
               <div className="flex items-center gap-0.5 rounded-xl border border-border/50 bg-muted/50 p-0.5 dark:bg-muted/30">
                 {variants.map((v) => {
@@ -111,6 +188,7 @@ export function ChartWrapper({
                   return (
                     <button
                       key={v}
+                      type="button"
                       onClick={() => onVariantChange(v)}
                       title={VARIANT_LABELS[v]}
                       className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all ${

@@ -5,7 +5,12 @@ import { Calendar, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/lib/locale-context";
-import { todayStr, yesterdayStr, type FilterParams } from "@/lib/filters";
+import {
+  localDateStr,
+  todayStr,
+  yesterdayStr,
+  type FilterParams,
+} from "@/lib/filters";
 import { MultiSelect } from "./MultiSelect";
 import type { FilterOptions } from "@/lib/useFilterOptions";
 
@@ -32,11 +37,11 @@ function getQuickRange(key: string): { dateFrom: string; dateTo: string } {
       const mondayOffset = day === 0 ? 6 : day - 1;
       const monday = new Date(d);
       monday.setDate(d.getDate() - mondayOffset);
-      return { dateFrom: monday.toISOString().split("T")[0], dateTo: today };
+      return { dateFrom: localDateStr(monday), dateTo: today };
     }
     case "thisMonth": {
       const first = new Date(d.getFullYear(), d.getMonth(), 1);
-      return { dateFrom: first.toISOString().split("T")[0], dateTo: today };
+      return { dateFrom: localDateStr(first), dateTo: today };
     }
     case "allTime":
       return { dateFrom: "", dateTo: "" };

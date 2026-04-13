@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DynamicChart } from "@/components/charts/DynamicChart";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
+import { formatCurrencyCompact, formatCurrencyFull } from "@/lib/chart-number-format";
 import { DataTable } from "@/components/data-table/DataTable";
 import { useLocale } from "@/lib/locale-context";
 import type { AgentMessage, ChartConfig } from "@/types";
@@ -201,11 +202,9 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                       nameKey={nameKey}
                       valueKeys={valueKeys}
                       height={320}
-                      formatter={(v) => {
-                        if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-                        if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-                        return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-                      }}
+                      formatter={formatCurrencyCompact}
+                      tooltipFormatter={formatCurrencyFull}
+                      showDataLabels
                     />
                   );
                 })()
