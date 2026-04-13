@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "seed:user": "node scripts/seed-user.mjs",
     "verify:login": "node scripts/verify-login.mjs",
     "rva:columns": "node scripts/list-rva-columns.mjs"
@@ -47,6 +48,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.4"
   }
 }

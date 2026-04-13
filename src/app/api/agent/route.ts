@@ -4,6 +4,8 @@ import { executeReadOnlyQuery } from "@/lib/db";
 import { formatOwnerHintsForSystemPrompt, listOwnerAgentHints } from "@/lib/owner-agent-hints-db";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canUseAgent } from "@/lib/auth-roles";
+import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
+import { postprocessAgentComparison } from "@/lib/agent-comparison-postprocess";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,8 +26,10 @@ export async function POST(req: NextRequest) {
     const ownerHintsBlock = formatOwnerHintsForSystemPrompt(hints);
 
     const lang = locale === "ka" ? "ka" : "en";
+    const comparisonIntent = detectComparisonIntent(question);
     const aiResponse = await generateSQLFromQuestion(question, history || [], lang, {
       ownerHintsBlock: ownerHintsBlock || undefined,
+      comparisonIntent,
     });
 
     let data: Record<string, unknown>[] = [];
@@ -43,15 +47,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const processed = postprocessAgentComparison({
+      intent: comparisonIntent,
+      chartType: aiResponse.chartType,
+      chartConfig: aiResponse.chartConfig,
+      data,
+    });
+
     return NextResponse.json({
       sql: aiResponse.sql,
-      data,
-      chartConfig: aiResponse.chartConfig
+      data: processed.data,
+      chartConfig: processed.chartConfig
         ? {
-            type: aiResponse.chartType,
-            xKey: aiResponse.chartConfig.xKey,
-            yKeys: aiResponse.chartConfig.yKeys,
-            title: aiResponse.chartConfig.title,
+            type: processed.chartType,
+            xKey: processed.chartConfig.xKey,
+            yKeys: processed.chartConfig.yKeys,
+            title: processed.chartConfig.title,
+            comparison: processed.chartConfig.comparison,
           }
         : null,
       narrative: aiResponse.narrative,

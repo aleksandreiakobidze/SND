@@ -3,6 +3,8 @@ import { executeReadOnlyQuery, validateReadOnlySql } from "@/lib/db";
 import { getSavedReportFull } from "@/lib/workspace-db";
 import { requireAuth } from "@/lib/auth-route-helpers";
 import type { ChartConfig } from "@/types";
+import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
+import { postprocessAgentComparison } from "@/lib/agent-comparison-postprocess";
 
 type Params = { reportId: string };
 
@@ -27,17 +29,42 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
         { status: 400 },
       );
     }
-    const data = await executeReadOnlyQuery(report.sqlText);
-    let chartConfig: ChartConfig | null = null;
+    const rawData = await executeReadOnlyQuery(report.sqlText);
+    let storedConfig: ChartConfig | null = null;
     if (report.chartConfigJson) {
       try {
-        chartConfig = JSON.parse(report.chartConfigJson) as ChartConfig;
+        storedConfig = JSON.parse(report.chartConfigJson) as ChartConfig;
       } catch {
-        chartConfig = null;
+        storedConfig = null;
       }
     }
+    const promptText = report.prompt?.trim() || report.title?.trim() || "";
+    const intent = detectComparisonIntent(promptText);
+    const processed = postprocessAgentComparison({
+      intent,
+      chartType: storedConfig?.type ?? "bar",
+      chartConfig: storedConfig
+        ? {
+            xKey: storedConfig.xKey,
+            yKeys: storedConfig.yKeys,
+            title: storedConfig.title,
+          }
+        : null,
+      data: rawData,
+    });
+    const chartConfig: ChartConfig | null = processed.chartConfig
+      ? {
+          type: processed.chartType,
+          xKey: processed.chartConfig.xKey,
+          yKeys: processed.chartConfig.yKeys,
+          title: processed.chartConfig.title ?? storedConfig?.title,
+          comparison: processed.chartConfig.comparison,
+          colors: storedConfig?.colors,
+        }
+      : storedConfig;
+
     return NextResponse.json({
-      data,
+      data: processed.data,
       chartConfig,
       narrative: report.narrative,
       title: report.title,

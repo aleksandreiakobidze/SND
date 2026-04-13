@@ -222,6 +222,36 @@ Use this view only when VIEW ROUTING says to use OnlineRealViewAgent.
    SELECT Gvari AS SalesRep, COUNT(DISTINCT IdOnlineReal1) AS Orders, SUM(Tanxa) AS Revenue FROM OnlineRealViewAgent GROUP BY Gvari ORDER BY Revenue DESC
 `;
 
+/**
+ * Injected into the agent system prompt only when comparison intent is detected.
+ * BI-style rules: grouped bar / multi-line for time × category; avoid pie for multi-period comparisons.
+ */
+export function getComparisonChartPromptBlock(locale: "en" | "ka"): string {
+  const lang = locale === "ka" ? "Georgian (ქართული)" : "English";
+
+  return `
+## COMPARISON REPORT MODE
+
+The user's question matches **comparison-style** analytics (e.g. compare, versus, by month/week/quarter/year, trend across periods, current year by month, month-to-month). Apply professional BI defaults. Narrative and chart title MUST remain in ${lang}.
+
+### Chart type rules
+- **Primary:** chartType **"bar"** for **grouped columns**: one row per **time bucket** (month/week/quarter), **yKeys** = **one numeric column per category** (brand, product line, region) — this is the default for "compare X by Y over time".
+- **Alternative:** chartType **"line"** when **trend** comparison matters more than bar-to-bar precision (same wide layout: xKey = time, multiple series in yKeys).
+- **Do NOT** use **"pie"** for comparing **many categories × many time periods** — pie/donut becomes unreadable. Use **"pie"** only if the user explicitly asks for **share of total** or **proportion** for a **single** period with **few** categories.
+- Use **"table"** when the user needs a detailed grid or there are too many dimensions for a clear chart.
+
+### SQL result shape (use clear English aliases)
+- **Preferred (tidy):** exactly three logical columns, e.g. **Month** (or Week / SaleDate), **Brand** (or Category / ProdT), **Revenue** (or Liters via SUM(TevadobaTotal)). Example: \`SELECT ... AS Month, ... AS Brand, SUM(Tanxa) AS Revenue ... GROUP BY Month, Brand\`.
+- **Alternative (wide):** one row per time period, one numeric column per top category; limit to **Top 5–10** categories by total and merge the rest as **Other** when possible.
+
+### Volume
+- If there are many brands/categories, restrict to **Top 10** by total revenue (or relevant measure) and aggregate the remainder as **Other** so the chart stays readable.
+
+### Notes
+- Prefer **tooltip** and axis formatting over crowding the chart with data labels when there are many series or periods.
+`;
+}
+
 export function getResponseFormatInstructions(locale: "en" | "ka"): string {
   const lang = locale === "ka" ? "Georgian (ქართული)" : "English";
 

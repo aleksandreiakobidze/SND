@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
+  LayoutGrid,
   PieChart,
   RefreshCw,
   Table2,
@@ -30,6 +31,13 @@ import { orderKeysItemCodeBeforeItemName } from "@/lib/table-column-order";
 import { computeColumnTotals } from "@/lib/table-totals";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
+import {
+  getVariantsForAgentChart,
+  defaultShowDataLabelsForAgent,
+} from "@/lib/chart-variant-presets";
+import { matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { ComparisonMatrixTable } from "@/components/agent/ComparisonMatrixTable";
+import { useAgentMatrixModel } from "@/hooks/use-agent-matrix-model";
 
 type Props = {
   report: SavedReportMeta;
@@ -46,21 +54,6 @@ const VARIANT_ICON: Record<ChartVariant, React.ElementType> = {
   area: TrendingUp,
   line: TrendingUp,
 };
-
-function getVariantsForType(type: string): ChartVariant[] {
-  switch (type) {
-    case "bar":
-      return ["bar", "pie", "horizontal-bar"];
-    case "pie":
-      return ["pie", "bar", "horizontal-bar"];
-    case "line":
-      return ["line", "area", "bar"];
-    case "area":
-      return ["area", "line", "bar"];
-    default:
-      return ["bar", "pie", "line"];
-  }
-}
 
 function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[]) {
   const xKey = config.xKey || (data[0] ? firstNonTechnicalColumnKey(data[0]) : "name");
@@ -84,21 +77,45 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
   const [narrative, setNarrative] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(report.title);
-  const [viewMode, setViewMode] = useState<"chart" | "table">("chart");
+  const [dataView, setDataView] = useState<"chart" | "matrix" | "flat">("chart");
   const [chartVariant, setChartVariant] = useState<ChartVariant | null>(null);
   const [exportingExcel, setExportingExcel] = useState(false);
 
+  const hasChartable = Boolean(
+    chartConfig && data && data.length > 0 && chartConfig.type !== "table" && chartConfig.type !== "number",
+  );
+  const comparison = chartConfig?.comparison;
+  const matrixView = useAgentMatrixModel(chartConfig, data ?? undefined);
+  const showMatrix = Boolean(matrixView);
+
+  const flatTableData = useMemo(
+    () => comparison?.longData ?? data ?? [],
+    [comparison?.longData, data],
+  );
+
+  const idealDataView: "chart" | "matrix" | "flat" = showMatrix
+    ? "matrix"
+    : hasChartable
+      ? "chart"
+      : "flat";
+
+  // Sync default view when report data / chart config loads (e.g. after refresh).
+  useEffect(() => {
+    setDataView(idealDataView);
+  }, [idealDataView, report.id]);
+
   const exportRows = useMemo(() => {
-    if (!data?.length) return [] as Record<string, unknown>[];
-    const keys = Object.keys(data[0]);
+    const src = flatTableData;
+    if (!src.length) return [] as Record<string, unknown>[];
+    const keys = Object.keys(src[0]);
     const filtered = keys.filter((k) => !isTechnicalIdColumnKey(k));
     const visibleKeys = orderKeysItemCodeBeforeItemName(filtered);
-    return data.map((row) => {
+    return src.map((row) => {
       const out: Record<string, unknown> = {};
       for (const k of visibleKeys) out[k] = row[k];
       return out;
     });
-  }, [data]);
+  }, [flatTableData]);
 
   async function refresh() {
     setLoading(true);
@@ -141,6 +158,19 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
   }
 
   async function exportExcel() {
+    if (dataView === "matrix" && matrixView) {
+      setExportingExcel(true);
+      try {
+        const rows = matrixToFlatExportRows(matrixView.model, matrixView.rowDimLabel);
+        const safeTitle = report.title.replace(/[/\\?%*:[\]]/g, "-").trim() || "report";
+        await downloadExcelFromRows(rows, `workspace_${safeTitle}_matrix`, {
+          sheetName: `${safeTitle.slice(0, 20)}_matrix`.slice(0, 31),
+        });
+      } finally {
+        setExportingExcel(false);
+      }
+      return;
+    }
     if (exportRows.length === 0) return;
     setExportingExcel(true);
     try {
@@ -168,23 +198,30 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
 
   const hasData = Boolean(data && data.length > 0);
   const isNumber = chartConfig?.type === "number";
-  const hasChartable =
-    Boolean(
-      chartConfig &&
-        data &&
-        data.length > 0 &&
-        chartConfig.type !== "table" &&
-        chartConfig.type !== "number",
-    );
   const variants = useMemo(
-    () => (hasChartable && chartConfig ? getVariantsForType(chartConfig.type) : []),
-    [hasChartable, chartConfig?.type],
+    () =>
+      hasChartable && chartConfig
+        ? getVariantsForAgentChart(chartConfig.type, {
+            comparison: !!(comparison?.enabled || matrixView),
+            explicitPie: chartConfig.type === "pie",
+          })
+        : [],
+    [hasChartable, chartConfig, comparison?.enabled, matrixView],
   );
   const activeVariant = useMemo(() => {
     if (variants.length === 0) return "bar";
     if (chartVariant && variants.includes(chartVariant)) return chartVariant;
     return variants[0];
   }, [chartVariant, variants]);
+
+  const showDataLabelsComputed =
+    chartConfig && data?.length
+      ? defaultShowDataLabelsForAgent(
+          chartConfig.yKeys?.length ?? 0,
+          data.length,
+          !!(comparison?.enabled || matrixView),
+        )
+      : true;
 
   useEffect(() => {
     setChartVariant(null);
@@ -284,30 +321,44 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
 
           {hasData && !isNumber && (
             <div className="space-y-1">
-              {hasChartable && (
+              {(hasChartable || showMatrix) && (
                 <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                  {hasChartable && (
+                    <Button
+                      type="button"
+                      variant={dataView === "chart" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDataView("chart")}
+                    >
+                      <BarChart3 className="h-3 w-3 mr-1" />
+                      {t("chart")}
+                    </Button>
+                  )}
+                  {showMatrix && (
+                    <Button
+                      type="button"
+                      variant={dataView === "matrix" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setDataView("matrix")}
+                    >
+                      <LayoutGrid className="h-3 w-3 mr-1" />
+                      {t("agentViewMatrix")}
+                    </Button>
+                  )}
                   <Button
                     type="button"
-                    variant={viewMode === "chart" ? "secondary" : "ghost"}
+                    variant={dataView === "flat" ? "secondary" : "ghost"}
                     size="sm"
                     className="h-7 text-xs"
-                    onClick={() => setViewMode("chart")}
-                  >
-                    <BarChart3 className="h-3 w-3 mr-1" />
-                    {t("chart")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={viewMode === "table" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setViewMode("table")}
+                    onClick={() => setDataView("flat")}
                   >
                     <Table2 className="h-3 w-3 mr-1" />
-                    {t("table")}
+                    {t("agentFlatTable")}
                   </Button>
 
-                  {viewMode === "chart" && variants.length > 1 && (
+                  {dataView === "chart" && variants.length > 1 && (
                     <div className="flex items-center gap-0.5 bg-muted/60 rounded-lg p-0.5 ml-1">
                       {variants.map((v) => {
                         const Icon = VARIANT_ICON[v];
@@ -336,7 +387,11 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                       variant="default"
                       size="sm"
                       className="h-7 text-xs"
-                      disabled={loading || exportRows.length === 0 || exportingExcel}
+                      disabled={
+                        loading ||
+                        exportingExcel ||
+                        (dataView === "matrix" ? !matrixView : exportRows.length === 0)
+                      }
                       onClick={() => void exportExcel()}
                     >
                       <FileSpreadsheet className="h-3 w-3 mr-1" />
@@ -350,7 +405,7 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
               )}
 
               <Card className={cn("p-4 overflow-hidden")}>
-                {viewMode === "chart" && hasChartable && chartConfig ? (
+                {dataView === "chart" && hasChartable && chartConfig ? (
                   (() => {
                     const { nameKey, valueKeys } = configToFlexProps(chartConfig, data!);
                     return (
@@ -362,17 +417,25 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                         height={320}
                         formatter={defaultChartValueFormat}
                         tooltipFormatter={formatCurrencyFull}
-                        showDataLabels
+                        showDataLabels={showDataLabelsComputed}
                       />
                     );
                   })()
+                ) : dataView === "matrix" && matrixView ? (
+                  <ComparisonMatrixTable
+                    model={matrixView.model}
+                    rowDimLabel={matrixView.rowDimLabel}
+                    measureLabel={matrixView.measureLabel}
+                    t={t}
+                    formatCell={defaultChartValueFormat}
+                  />
                 ) : (
                   <DataTable
-                    data={data!}
+                    data={flatTableData}
                     title="workspace_report"
                     pageSize={10}
                     showTotals
-                    exportable={!hasChartable}
+                    exportable={!hasChartable && !showMatrix}
                   />
                 )}
               </Card>

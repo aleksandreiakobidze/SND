@@ -4,8 +4,10 @@ import {
   VIEW_ROUTING_INSTRUCTIONS,
   ONLINE_SCHEMA_DESCRIPTION,
   getResponseFormatInstructions,
+  getComparisonChartPromptBlock,
 } from "./schema";
 import { getMinOrderRulesAgentPromptBlock } from "./online-transfer-rules";
+import type { ComparisonIntentResult } from "./agent-comparison-intent";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -32,12 +34,16 @@ export async function generateSQLFromQuestion(
   question: string,
   conversationHistory: ConversationMessage[] = [],
   locale: "en" | "ka" = "en",
-  options?: { ownerHintsBlock?: string },
+  options?: { ownerHintsBlock?: string; comparisonIntent?: ComparisonIntentResult },
 ): Promise<AIResponse> {
   const ownerBlock = options?.ownerHintsBlock?.trim()
     ? `\n\n${options.ownerHintsBlock.trim()}\n\n`
     : "\n\n";
-  const systemPrompt = `${VIEW_ROUTING_INSTRUCTIONS}\n\n${SCHEMA_DESCRIPTION}\n\n${ONLINE_SCHEMA_DESCRIPTION}\n\n${getMinOrderRulesAgentPromptBlock()}${ownerBlock}${getResponseFormatInstructions(locale)}`;
+  const comparisonBlock =
+    options?.comparisonIntent?.isComparison === true
+      ? `\n\n${getComparisonChartPromptBlock(locale)}\n\n`
+      : "";
+  const systemPrompt = `${VIEW_ROUTING_INSTRUCTIONS}\n\n${SCHEMA_DESCRIPTION}\n\n${ONLINE_SCHEMA_DESCRIPTION}\n\n${getMinOrderRulesAgentPromptBlock()}${ownerBlock}${comparisonBlock}${getResponseFormatInstructions(locale)}`;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

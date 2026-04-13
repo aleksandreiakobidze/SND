@@ -1,7 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, User, ChevronDown, ChevronUp, Code, BarChart3, Table2, FileText, PieChart, TrendingUp, BarChart, BookmarkPlus } from "lucide-react";
+import {
+  Bot,
+  User,
+  ChevronDown,
+  ChevronUp,
+  Code,
+  BarChart3,
+  Table2,
+  FileText,
+  PieChart,
+  TrendingUp,
+  BarChart,
+  BookmarkPlus,
+  LayoutGrid,
+  FileSpreadsheet,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +29,14 @@ import { useLocale } from "@/lib/locale-context";
 import type { AgentMessage, ChartConfig } from "@/types";
 import { firstNonTechnicalColumnKey, numericMeasureKeys } from "@/lib/technical-columns";
 import { cn } from "@/lib/utils";
+import {
+  getVariantsForAgentChart,
+  defaultShowDataLabelsForAgent,
+} from "@/lib/chart-variant-presets";
+import { matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { ComparisonMatrixTable } from "@/components/agent/ComparisonMatrixTable";
+import { downloadExcelFromRows } from "@/lib/export-excel";
+import { useAgentMatrixModel } from "@/hooks/use-agent-matrix-model";
 
 const VARIANT_ICON: Record<ChartVariant, React.ElementType> = {
   bar: BarChart,
@@ -22,21 +45,6 @@ const VARIANT_ICON: Record<ChartVariant, React.ElementType> = {
   area: TrendingUp,
   line: TrendingUp,
 };
-
-function getVariantsForType(type: string): ChartVariant[] {
-  switch (type) {
-    case "bar":
-      return ["bar", "pie", "horizontal-bar"];
-    case "pie":
-      return ["pie", "bar", "horizontal-bar"];
-    case "line":
-      return ["line", "area", "bar"];
-    case "area":
-      return ["area", "line", "bar"];
-    default:
-      return ["bar", "pie", "line"];
-  }
-}
 
 function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[]) {
   const xKey = config.xKey || (data[0] ? firstNonTechnicalColumnKey(data[0]) : "name");
@@ -52,16 +60,29 @@ function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[])
 
 interface ChatMessageProps {
   message: AgentMessage;
-  /** When set, shows “Save to workspace” for successful assistant replies with SQL + data */
   onSaveToWorkspace?: (message: AgentMessage) => void;
 }
 
 export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
   const { t } = useLocale();
   const [showSQL, setShowSQL] = useState(false);
-  const [viewMode, setViewMode] = useState<"chart" | "table">("chart");
   const [chartVariant, setChartVariant] = useState<ChartVariant | null>(null);
   const isUser = message.role === "user";
+
+  const comparison = message.chartConfig?.comparison;
+  const matrixView = useAgentMatrixModel(message.chartConfig, message.data);
+  const hasData = Boolean(message.data && message.data.length > 0);
+  const hasChart = Boolean(
+    message.chartConfig &&
+      hasData &&
+      message.chartConfig.type !== "table" &&
+      message.chartConfig.type !== "number",
+  );
+  const showMatrix = Boolean(matrixView);
+
+  const [dataView, setDataView] = useState<"chart" | "matrix" | "flat">(() =>
+    showMatrix ? "matrix" : hasChart ? "chart" : "flat",
+  );
 
   if (message.loading) {
     return (
@@ -93,15 +114,35 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
     );
   }
 
-  const hasChart = message.chartConfig && message.data && message.data.length > 0 && message.chartConfig.type !== "table" && message.chartConfig.type !== "number";
   const isNumber = message.chartConfig && message.chartConfig.type === "number";
-  const hasData = message.data && message.data.length > 0;
-  const canSaveToWorkspace = Boolean(
-    onSaveToWorkspace && message.sql && !message.loading,
-  );
+  const canSaveToWorkspace = Boolean(onSaveToWorkspace && message.sql && !message.loading);
 
-  const variants = hasChart ? getVariantsForType(message.chartConfig!.type) : [];
+  const variants = hasChart
+    ? getVariantsForAgentChart(message.chartConfig!.type, {
+        comparison: !!(comparison?.enabled || matrixView),
+        explicitPie: message.chartConfig?.type === "pie",
+      })
+    : [];
   const activeVariant = chartVariant || (variants[0] ?? "bar");
+
+  const flatTableData = comparison?.longData ?? message.data ?? [];
+
+  const showDataLabelsComputed =
+    message.chartConfig && message.data?.length
+      ? defaultShowDataLabelsForAgent(
+          message.chartConfig.yKeys?.length ?? 0,
+          message.data.length,
+          !!(comparison?.enabled || matrixView),
+        )
+      : true;
+
+  async function handleExportMatrix() {
+    if (!matrixView) return;
+    const rows = matrixToFlatExportRows(matrixView.model, matrixView.rowDimLabel);
+    await downloadExcelFromRows(rows, `comparison-matrix-${Date.now()}`, {
+      sheetName: message.chartConfig?.title?.slice(0, 31) ?? "Matrix",
+    });
+  }
 
   return (
     <div className="flex gap-3 items-start">
@@ -119,6 +160,7 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
         {message.sql && (
           <div>
             <button
+              type="button"
               onClick={() => setShowSQL(!showSQL)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -140,59 +182,86 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
 
         {hasData && !isNumber && (
           <div>
+            {message.chartConfig?.title ? (
+              <h3 className="text-sm font-semibold mb-2">{message.chartConfig.title}</h3>
+            ) : null}
             <div className="flex items-center gap-1.5 mb-2 flex-wrap">
               {hasChart && (
-                <>
-                  <Button
-                    variant={viewMode === "chart" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setViewMode("chart")}
-                  >
-                    <BarChart3 className="h-3 w-3 mr-1" />
-                    {t("chart")}
-                  </Button>
-                  <Button
-                    variant={viewMode === "table" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setViewMode("table")}
-                  >
-                    <Table2 className="h-3 w-3 mr-1" />
-                    {t("table")}
-                  </Button>
-
-                  {viewMode === "chart" && variants.length > 1 && (
-                    <div className="flex items-center gap-0.5 bg-muted/60 rounded-lg p-0.5 ml-2">
-                      {variants.map((v) => {
-                        const Icon = VARIANT_ICON[v];
-                        return (
-                          <button
-                            key={v}
-                            onClick={() => setChartVariant(v)}
-                            className={cn(
-                              "p-1.5 rounded-md transition-all",
-                              activeVariant === v
-                                ? "bg-background shadow-sm text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                            title={v}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
+                <Button
+                  variant={dataView === "chart" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setDataView("chart")}
+                >
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  {t("chart")}
+                </Button>
               )}
+              {showMatrix && (
+                <Button
+                  variant={dataView === "matrix" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setDataView("matrix")}
+                >
+                  <LayoutGrid className="h-3 w-3 mr-1" />
+                  {t("agentViewMatrix")}
+                </Button>
+              )}
+              <Button
+                variant={dataView === "flat" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setDataView("flat")}
+              >
+                <Table2 className="h-3 w-3 mr-1" />
+                {t("agentFlatTable")}
+              </Button>
+
+              {dataView === "chart" && variants.length > 1 && (
+                <div className="flex items-center gap-0.5 bg-muted/60 rounded-lg p-0.5 ml-2">
+                  {variants.map((v) => {
+                    const Icon = VARIANT_ICON[v];
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setChartVariant(v)}
+                        className={cn(
+                          "p-1.5 rounded-md transition-all",
+                          activeVariant === v
+                            ? "bg-background shadow-sm text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                        title={v}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {dataView === "matrix" && matrixView && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs ml-1"
+                  onClick={() => void handleExportMatrix()}
+                >
+                  <FileSpreadsheet className="h-3 w-3 mr-1" />
+                  {t("agentExportMatrix")}
+                </Button>
+              )}
+
               <Badge variant="outline" className="ml-auto text-xs">
                 {message.data!.length} {t("rows")}
               </Badge>
             </div>
 
             <Card className={cn("p-4 overflow-hidden")}>
-              {viewMode === "chart" && hasChart && message.chartConfig ? (
+              {dataView === "chart" && hasChart && message.chartConfig ? (
                 (() => {
                   const { nameKey, valueKeys } = configToFlexProps(message.chartConfig, message.data!);
                   return (
@@ -204,16 +273,19 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                       height={320}
                       formatter={formatCurrencyCompact}
                       tooltipFormatter={formatCurrencyFull}
-                      showDataLabels
+                      showDataLabels={showDataLabelsComputed}
                     />
                   );
                 })()
-              ) : (
-                <DataTable
-                  data={message.data!}
-                  title="agent_result"
-                  pageSize={10}
+              ) : dataView === "matrix" && matrixView ? (
+                <ComparisonMatrixTable
+                  model={matrixView.model}
+                  rowDimLabel={matrixView.rowDimLabel}
+                  measureLabel={matrixView.measureLabel}
+                  t={t}
                 />
+              ) : (
+                <DataTable data={flatTableData} title="agent_result" pageSize={10} />
               )}
             </Card>
           </div>
