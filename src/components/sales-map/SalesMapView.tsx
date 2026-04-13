@@ -14,7 +14,8 @@ import { DriverSearchSelect } from "@/components/sales-map/DriverSearchSelect";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { BoxSelect, RefreshCw } from "lucide-react";
+import { BoxSelect, FileSpreadsheet, RefreshCw } from "lucide-react";
+import { downloadExcelFromRows } from "@/lib/export-excel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -96,6 +97,7 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
   const [driverId, setDriverId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [exportingLinesExcel, setExportingLinesExcel] = useState(false);
 
   const loadPoints = useCallback(async () => {
     if (!filtersReady) return;
@@ -205,6 +207,35 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
     },
     [driverNameById],
   );
+
+  const linesExcelRows = useMemo(() => {
+    const dk = t("drivers");
+    const pk = t("productCode");
+    const nk = t("productName");
+    const qk = t("qty");
+    return linesForTable.map((line) => {
+      const ra = line.Raod;
+      const qty = ra != null && Number.isFinite(Number(ra)) ? Number(ra) : "";
+      return {
+        [dk]: driverLabelForRow(line),
+        [pk]:
+          line.IdProd != null && String(line.IdProd).trim() !== ""
+            ? String(line.IdProd)
+            : "",
+        [nk]: String(line.Prod ?? ""),
+        [qk]: qty,
+      } as Record<string, unknown>;
+    });
+  }, [linesForTable, driverLabelForRow, t]);
+
+  const linesExcelTotals = useMemo(() => {
+    let sumQty = 0;
+    for (const line of linesForTable) {
+      const ra = line.Raod;
+      if (ra != null && Number.isFinite(Number(ra))) sumQty += Number(ra);
+    }
+    return { [t("qty")]: sumQty } as Record<string, number | null>;
+  }, [linesForTable, t]);
 
   const points = useMemo(() => {
     const out: { id: number; pos: L.LatLngTuple; row: SalesMapPointRow; orgT: string }[] = [];
@@ -594,8 +625,39 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
       {!loading && rows.length > 0 && (
         <Card className="border-border/60">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">{t("salesMapLinesTitle")}</CardTitle>
-            <CardDescription>{t("salesMapLinesHint")}</CardDescription>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1.5">
+                <CardTitle className="text-base">{t("salesMapLinesTitle")}</CardTitle>
+                <CardDescription>{t("salesMapLinesHint")}</CardDescription>
+              </div>
+              {linesForTable.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-2"
+                  disabled={exportingLinesExcel}
+                  onClick={() => {
+                    void (async () => {
+                      if (linesExcelRows.length === 0) return;
+                      try {
+                        setExportingLinesExcel(true);
+                        await downloadExcelFromRows(linesExcelRows, "sales_map_product_lines", {
+                          sheetName: "ProductLines",
+                          totals: linesExcelTotals,
+                          totalLabel: t("tableTotal"),
+                        });
+                      } finally {
+                        setExportingLinesExcel(false);
+                      }
+                    })();
+                  }}
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  {exportingLinesExcel ? t("loading") : t("exportExcel")}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
             {rowsFilteredByDriver.length === 0 ? (

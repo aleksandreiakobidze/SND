@@ -235,11 +235,11 @@ You must respond with valid JSON in this exact format:
     "yKeys": ["column name(s) for values"],
     "title": "Chart title in ${lang}"
   },
-  "narrative": "A brief 2-3 sentence analysis of what the data shows, written in ${lang}. Include key insights. If the query uses a relative date window (e.g. last N days), **name the exact from–to dates** in the narrative.",
+  "narrative": "A brief 2-3 sentence analysis of what the data shows, written in ${lang}. Include key insights. If the SQL uses a **rolling relative window** (e.g. last N days including today), describe that scope in words — e.g. \"the last 7 days\" / \"ბოლო 7 დღე\" — and **do not** state invented or stale calendar from–to dates. Only give explicit dates when the query filters a **fixed** range the user asked for.",
   "suggestedQuestions": ["Follow-up question in ${lang} 1", "Follow-up question in ${lang} 2", "Follow-up question in ${lang} 3"]
 }
 
-LANGUAGE RULE: The "narrative", "suggestedQuestions", and chart "title" MUST be written in ${lang}. SQL column aliases should always be in English for consistency.
+LANGUAGE RULE: The "narrative", "suggestedQuestions", and chart "title" MUST be written in ${lang}. SQL column aliases should always be in English for consistency. Chart "title" must match the query scope: for rolling \"last N days\" filters, use relative wording in the title (same as narrative), not a fixed date span.
 
 Chart type guidance:
 - "bar": For comparing categories (regions, products, managers). Use when < 20 categories.

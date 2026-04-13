@@ -12,6 +12,7 @@ import {
 import {
   canAccessOnlineOrders,
   canAssignSalesDriver,
+  canEditWorkspace,
   canManageUsers,
   canUseAgent,
   canViewDashboard,
@@ -90,6 +91,7 @@ export function useAuthCapabilities(permissions: string[]) {
     () => ({
       canViewDashboard: canViewDashboard(permissions),
       canUseAgent: canUseAgent(permissions),
+      canEditWorkspace: canEditWorkspace(permissions),
       canAccessOnlineOrders: canAccessOnlineOrders(permissions),
       canManageUsers: canManageUsers(permissions),
       canAssignSalesDriver: canAssignSalesDriver(permissions),

@@ -7,6 +7,7 @@ import {
   PERMISSION_USE_AGENT,
   PERMISSION_VIEW_DASHBOARD,
 } from "@/lib/auth-permissions";
+import { ROLE_ADMIN } from "@/lib/auth-constants";
 
 /** Agent SQL generation + personal hints */
 export function canUseAgent(permissions: string[]): boolean {
@@ -36,6 +37,11 @@ export function canAssignSalesDriver(permissions: string[]): boolean {
 /** Admin: users + roles CRUD */
 export function canManageUsers(permissions: string[]): boolean {
   return hasPermission(permissions, PERMISSION_MANAGE_USERS);
+}
+
+/** Global sidebar layout DnD / PUT — role name from dbo.SndApp_Role (e.g. admin). */
+export function isAdminRole(roleNames: string[]): boolean {
+  return roleNames.some((r) => r.trim().toLowerCase() === ROLE_ADMIN);
 }
 
 /** Viewer is read-only for agent/workspace writes */

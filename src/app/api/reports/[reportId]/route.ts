@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteSavedReport, updateSavedReportTitle } from "@/lib/workspace-db";
-import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
+import { deleteSavedReport, patchSavedReport } from "@/lib/workspace-db";
+import { forbidden, isUuidString, requireAuth } from "@/lib/auth-route-helpers";
 import { canEditWorkspace } from "@/lib/auth-roles";
 
 type Params = { reportId: string };
@@ -9,15 +9,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
   try {
     const auth = await requireAuth();
     if (!auth.ok) return auth.res;
-    if (!canEditWorkspace(auth.ctx.permissions)) return forbidden();
 
     const { reportId } = await ctx.params;
-    const body = await req.json();
-    const title = typeof body.title === "string" ? body.title : "";
-    if (!title.trim()) {
-      return NextResponse.json({ error: "title is required" }, { status: 400 });
+    const body = (await req.json()) as { title?: unknown; sectionId?: unknown };
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const sectionId = typeof body.sectionId === "string" ? body.sectionId : undefined;
+    const hasTitle = title !== undefined && title.trim().length > 0;
+    const hasSection = sectionId !== undefined && sectionId.trim().length > 0;
+    if (!hasTitle && !hasSection) {
+      return NextResponse.json(
+        { error: "Provide title and/or sectionId" },
+        { status: 400 },
+      );
     }
-    const ok = await updateSavedReportTitle(auth.ctx.user.id, reportId, title);
+    if (hasTitle && !canEditWorkspace(auth.ctx.permissions)) {
+      return forbidden();
+    }
+    if (hasSection && !isUuidString(sectionId!)) {
+      return NextResponse.json({ error: "sectionId must be a valid UUID" }, { status: 400 });
+    }
+    const ok = await patchSavedReport(auth.ctx.user.id, reportId, {
+      ...(hasTitle ? { title: title!.trim() } : {}),
+      ...(hasSection ? { sectionId: sectionId!.trim() } : {}),
+    });
     if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e) {

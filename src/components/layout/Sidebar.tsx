@@ -2,16 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
-import { useState, useEffect } from "react";
-import {
-  type SidebarNavItemDef,
-  SIDEBAR_NAV_GROUPS,
-  navItemsInGroup,
-} from "@/lib/nav-items";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type NavGroupDef, type SidebarNavItemDef } from "@/lib/nav-items";
 import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
+import { isAdminRole } from "@/lib/auth-roles";
 import { isNavItemVisible } from "@/lib/nav-access";
 import { useNavPreferences } from "@/lib/useNavPreferences";
 import { NavCustomizeSheet } from "@/components/layout/NavCustomizeSheet";
@@ -21,23 +40,236 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import type { SidebarLayout } from "@/lib/sidebar-layout";
+import { getDefaultSidebarLayout } from "@/lib/sidebar-layout";
+import { flattenNavItemsInOrder, mergeSidebarLayout } from "@/lib/sidebar-layout-merge";
+import {
+  applyGroupOrderDragEnd,
+  applyNavItemDragEnd,
+  SB_GRP_PREFIX,
+  SB_NAV_PREFIX,
+} from "@/components/layout/sidebar-nav-dnd-helpers";
+
+function GroupDropPlaceholder({ groupId, label }: { groupId: string; label: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${SB_GRP_PREFIX}${groupId}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-lg border border-dashed border-sidebar-border/60 px-3 py-6 text-center text-xs text-muted-foreground",
+        isOver && "border-sidebar-primary bg-sidebar-primary/5",
+      )}
+    >
+      {label}
+    </div>
+  );
+}
+
+function SortableGroupShell({
+  group,
+  editMode,
+  groupTitle,
+  open,
+  onOpenChange,
+  children,
+}: {
+  group: NavGroupDef;
+  editMode: boolean;
+  groupTitle: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `${SB_GRP_PREFIX}${group.id}`,
+    disabled: !editMode,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(isDragging && "z-50 opacity-70")}
+    >
+      <Collapsible open={open} onOpenChange={onOpenChange}>
+        <div className="flex items-start gap-0.5">
+          {editMode ? (
+            <button
+              type="button"
+              className="mt-1 cursor-grab touch-none shrink-0 rounded p-1 text-muted-foreground hover:text-sidebar-foreground"
+              {...attributes}
+              {...listeners}
+              aria-label="Reorder group"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          ) : null}
+          <div className="min-w-0 flex-1 space-y-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors",
+                "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                "outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+            >
+              <span className="truncate">{groupTitle}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-muted-foreground/80 transition-transform duration-200",
+                  open && "rotate-180",
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>{children}</CollapsibleContent>
+          </div>
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+function SortableNavItemRow({
+  item,
+  editMode,
+  children,
+}: {
+  item: SidebarNavItemDef;
+  editMode: boolean;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `${SB_NAV_PREFIX}${item.id}`,
+    disabled: !editMode,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("flex items-center gap-0.5", isDragging && "z-50 opacity-70")}
+    >
+      {editMode ? (
+        <button
+          type="button"
+          className="cursor-grab touch-none shrink-0 rounded p-1 text-muted-foreground hover:text-sidebar-foreground"
+          {...attributes}
+          {...listeners}
+          aria-label="Reorder link"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      ) : null}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
   const { t } = useLocale();
-  const { permissions, loading: authLoading } = useAuth();
+  const { permissions, roles, loading: authLoading } = useAuth();
   const caps = useAuthCapabilities(permissions);
   const nav = useNavPreferences();
   const [collapsed, setCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [remoteLayout, setRemoteLayout] = useState<SidebarLayout | null>(null);
+  const [workingLayout, setWorkingLayout] = useState<SidebarLayout | null>(null);
+  const [sidebarEditMode, setSidebarEditMode] = useState(false);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+
+  const isAdmin = isAdminRole(roles);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/sidebar-layout", { credentials: "include" });
+        const json = (await res.json()) as { layout?: SidebarLayout | null };
+        if (!cancelled && res.ok) {
+          setRemoteLayout(json.layout ?? null);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const layoutForMerge = sidebarEditMode && workingLayout ? workingLayout : remoteLayout;
+  const merged = useMemo(() => mergeSidebarLayout(layoutForMerge), [layoutForMerge]);
 
   const allowItem = (item: SidebarNavItemDef) =>
     authLoading || isNavItemVisible(item, caps);
 
-  const renderLink = (item: SidebarNavItemDef) => {
+  const persistLayout = useCallback(
+    async (layout: SidebarLayout) => {
+      setLayoutError(null);
+      const res = await fetch("/api/sidebar-layout", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(layout),
+      });
+      const resBody = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        details?: string;
+      };
+      if (!res.ok) {
+        const msg =
+          resBody.details != null && resBody.details !== ""
+            ? `${resBody.error ?? t("sidebarLayoutSaveFailed")}: ${resBody.details}`
+            : resBody.error ?? t("sidebarLayoutSaveFailed");
+        setLayoutError(msg);
+        try {
+          const again = await fetch("/api/sidebar-layout", { credentials: "include" });
+          const json = (await again.json()) as { layout?: SidebarLayout | null };
+          if (again.ok) {
+            const fresh = json.layout ?? null;
+            setRemoteLayout(fresh);
+            setWorkingLayout(fresh ?? getDefaultSidebarLayout());
+          } else {
+            setWorkingLayout(remoteLayout ?? getDefaultSidebarLayout());
+          }
+        } catch {
+          setWorkingLayout(remoteLayout ?? getDefaultSidebarLayout());
+        }
+        return false;
+      }
+      setRemoteLayout(layout);
+      return true;
+    },
+    [remoteLayout, t],
+  );
+
+  const onSidebarDragEnd = async (event: DragEndEvent) => {
+    if (!sidebarEditMode || !workingLayout || !isAdmin) return;
+    const aid = String(event.active.id);
+    let next: SidebarLayout | null = null;
+    if (aid.startsWith(SB_GRP_PREFIX)) {
+      const go = applyGroupOrderDragEnd(workingLayout.groupOrder, event);
+      if (go) next = { ...workingLayout, groupOrder: go };
+    } else if (aid.startsWith(SB_NAV_PREFIX)) {
+      const ig = applyNavItemDragEnd(workingLayout.itemsByGroup, event);
+      if (ig) next = { ...workingLayout, itemsByGroup: ig };
+    }
+    if (!next) return;
+    setWorkingLayout(next);
+    await persistLayout(next);
+  };
+
+  const renderLinkInner = (item: SidebarNavItemDef) => {
     const isActive = mounted
       ? item.href === "/"
         ? pathname === "/"
@@ -48,7 +280,6 @@ export function Sidebar() {
 
     return (
       <Link
-        key={item.href}
         href={item.href}
         title={collapsed ? label : undefined}
         className={cn(
@@ -76,6 +307,106 @@ export function Sidebar() {
     );
   };
 
+  const expandedNav = () => {
+    const { orderedGroups, getItemsForGroup } = merged;
+    const showDnd = sidebarEditMode && isAdmin && !collapsed && workingLayout;
+
+    const groupNodes = orderedGroups.map((group) => {
+      const rawItems = getItemsForGroup(group.id).filter(
+        (item) => !nav.hiddenSet.has(item.id) && allowItem(item),
+      );
+      if (rawItems.length === 0 && !showDnd) return null;
+
+      const groupTitle = nav.getGroupLabel(group.id, t(group.labelKey));
+      const open = !nav.isGroupCollapsed(group.id);
+      const navIds = rawItems.map((i) => `${SB_NAV_PREFIX}${i.id}`);
+
+      const body =
+        showDnd && workingLayout ? (
+          <SortableContext items={navIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-0.5">
+              {rawItems.length === 0 ? (
+                <GroupDropPlaceholder groupId={group.id} label={t("workspaceNoReports")} />
+              ) : (
+                rawItems.map((item) => (
+                  <SortableNavItemRow key={item.id} item={item} editMode>
+                    {renderLinkInner(item)}
+                  </SortableNavItemRow>
+                ))
+              )}
+            </div>
+          </SortableContext>
+        ) : (
+          <CollapsibleContent className="space-y-0.5">
+            {rawItems.map((item) => (
+              <div key={item.id}>{renderLinkInner(item)}</div>
+            ))}
+          </CollapsibleContent>
+        );
+
+      if (showDnd) {
+        return (
+          <SortableGroupShell
+            key={group.id}
+            group={group}
+            editMode
+            groupTitle={groupTitle}
+            open={open}
+            onOpenChange={(next) => nav.setGroupCollapsed(group.id, !next)}
+          >
+            {body}
+          </SortableGroupShell>
+        );
+      }
+
+      return (
+        <Collapsible
+          key={group.id}
+          open={open}
+          onOpenChange={(next) => nav.setGroupCollapsed(group.id, !next)}
+        >
+          <div className="space-y-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors",
+                "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                "outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+            >
+              <span className="truncate">{groupTitle}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-muted-foreground/80 transition-transform duration-200",
+                  open && "rotate-180",
+                )}
+              />
+            </CollapsibleTrigger>
+            {body}
+          </div>
+        </Collapsible>
+      );
+    });
+
+    const renderedGroups = groupNodes.filter(Boolean);
+
+    if (showDnd && workingLayout) {
+      const groupSortIds = orderedGroups.map((g) => `${SB_GRP_PREFIX}${g.id}`);
+      return (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSidebarDragEnd}>
+          <SortableContext items={groupSortIds} strategy={verticalListSortingStrategy}>
+            <div className="flex flex-col gap-5">{renderedGroups}</div>
+          </SortableContext>
+        </DndContext>
+      );
+    }
+
+    return <div className="flex flex-col gap-5">{renderedGroups}</div>;
+  };
+
+  const collapsedLinks = flattenNavItemsInOrder(layoutForMerge)
+    .filter((item) => !nav.hiddenSet.has(item.id) && allowItem(item))
+    .map((item) => <div key={item.id}>{renderLinkInner(item)}</div>);
+
   return (
     <>
       <aside
@@ -97,57 +428,36 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2.5 py-4">
-          {collapsed ? (
-            SIDEBAR_NAV_GROUPS.flatMap((group) =>
-              navItemsInGroup(group.id).filter(
-                (item) => !nav.hiddenSet.has(item.id) && allowItem(item),
-              ),
-            ).map((item) => renderLink(item))
-          ) : (
-            <div className="flex flex-col gap-5">
-              {SIDEBAR_NAV_GROUPS.map((group) => {
-                const items = navItemsInGroup(group.id).filter(
-                  (item) => !nav.hiddenSet.has(item.id) && allowItem(item),
-                );
-                if (items.length === 0) return null;
-
-                const groupTitle = nav.getGroupLabel(group.id, t(group.labelKey));
-                const open = !nav.isGroupCollapsed(group.id);
-
-                return (
-                  <Collapsible
-                    key={group.id}
-                    open={open}
-                    onOpenChange={(next) => nav.setGroupCollapsed(group.id, !next)}
-                  >
-                    <div className="space-y-1">
-                      <CollapsibleTrigger
-                        className={cn(
-                          "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors",
-                          "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                          "outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                      >
-                        <span className="truncate">{groupTitle}</span>
-                        <ChevronDown
-                          className={cn(
-                            "h-3.5 w-3.5 shrink-0 text-muted-foreground/80 transition-transform duration-200",
-                            open && "rotate-180",
-                          )}
-                        />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-0.5">
-                        {items.map((item) => renderLink(item))}
-                      </CollapsibleContent>
-                    </div>
-                  </Collapsible>
-                );
-              })}
-            </div>
-          )}
+          {layoutError ? (
+            <p className="mb-2 px-1 text-xs text-destructive">{layoutError}</p>
+          ) : null}
+          {collapsed ? collapsedLinks : expandedNav()}
         </nav>
 
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border/60 p-2">
+          {isAdmin && !collapsed ? (
+            <Button
+              type="button"
+              variant={sidebarEditMode ? "secondary" : "ghost"}
+              className={cn(
+                "h-11 justify-start gap-3 rounded-xl px-3 text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+              )}
+              onClick={() => {
+                if (sidebarEditMode) {
+                  setSidebarEditMode(false);
+                  setWorkingLayout(null);
+                } else {
+                  setWorkingLayout(remoteLayout ?? getDefaultSidebarLayout());
+                  setSidebarEditMode(true);
+                }
+              }}
+            >
+              <GripVertical className="h-[1.15rem] w-[1.15rem] shrink-0" />
+              <span className="truncate text-sm font-medium">
+                {sidebarEditMode ? t("sidebarEditNavOrderDone") : t("sidebarEditNavOrder")}
+              </span>
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"

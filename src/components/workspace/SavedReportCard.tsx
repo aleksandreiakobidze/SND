@@ -34,6 +34,8 @@ type Props = {
   report: SavedReportMeta;
   onDeleted: () => void;
   onTitleUpdated: () => void;
+  /** When false, title is read-only and delete is hidden. Default true. */
+  canEdit?: boolean;
 };
 
 const VARIANT_ICON: Record<ChartVariant, React.ElementType> = {
@@ -71,7 +73,7 @@ function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[])
   return { nameKey: xKey, valueKeys };
 }
 
-export function SavedReportCard({ report, onDeleted, onTitleUpdated }: Props) {
+export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = true }: Props) {
   const { t } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -202,7 +204,7 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated }: Props) {
               }}
               autoFocus
             />
-          ) : (
+          ) : canEdit ? (
             <button
               type="button"
               className="text-left font-semibold hover:underline"
@@ -213,6 +215,8 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated }: Props) {
             >
               {report.title}
             </button>
+          ) : (
+            <span className="font-semibold">{report.title}</span>
           )}
           {report.narrative ? (
             <p className="text-xs text-muted-foreground line-clamp-2">{report.narrative}</p>
@@ -253,9 +257,11 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated }: Props) {
             <RefreshCw className={cn("h-3.5 w-3.5 mr-1", loading && "animate-spin")} />
             {t("workspaceRefreshReport")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" className="h-8 text-destructive" onClick={remove}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {canEdit ? (
+            <Button type="button" variant="ghost" size="sm" className="h-8 text-destructive" onClick={remove}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
         </div>
       </div>
 

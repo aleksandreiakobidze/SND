@@ -27,6 +27,7 @@ export type SavedReportMeta = {
   title: string;
   source: SavedReportSource;
   narrative: string | null;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -126,15 +127,16 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
     Title: string;
     Source: string;
     Narrative: string | null;
+    SortOrder: number;
     CreatedAt: Date;
     UpdatedAt: Date;
   }>(
     `SELECT CAST(Id AS VARCHAR(36)) AS Id,
             CAST(SectionId AS VARCHAR(36)) AS SectionId,
-            Title, Source, Narrative, CreatedAt, UpdatedAt
+            Title, Source, Narrative, SortOrder, CreatedAt, UpdatedAt
      FROM dbo.SndApp_SavedReport
      WHERE SectionId IN (${rInList})
-     ORDER BY CreatedAt ASC`,
+     ORDER BY SortOrder ASC, CreatedAt ASC`,
   );
 
   const reportsBySection = new Map<string, SavedReportMeta[]>();
@@ -144,6 +146,7 @@ export async function listWorkspaceTree(ownerId: string): Promise<WorkspaceTree[
       title: row.Title,
       source: row.Source === "builtin" ? "builtin" : "agent",
       narrative: row.Narrative,
+      sortOrder: row.SortOrder ?? 0,
       createdAt: rowDate(row.CreatedAt),
       updatedAt: rowDate(row.UpdatedAt),
     };
@@ -305,8 +308,9 @@ export async function createSavedReport(
 
   await req.query(
     `INSERT INTO dbo.SndApp_SavedReport
-       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative)
-     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative)`,
+       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative, SortOrder)
+     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative,
+       (SELECT ISNULL(MAX(SortOrder), -1) + 1 FROM dbo.SndApp_SavedReport WHERE SectionId = @sectionId))`,
   );
   return { id };
 }
@@ -327,10 +331,12 @@ export async function getSavedReportFull(
     SqlText: string | null;
     ChartConfigJson: string | null;
     Narrative: string | null;
+    SortOrder: number;
     CreatedAt: Date;
     UpdatedAt: Date;
   }>(
-    `SELECT CAST(r.Id AS VARCHAR(36)) AS Id, r.Title, r.Source, r.Prompt, r.SqlText, r.ChartConfigJson, r.Narrative, r.CreatedAt, r.UpdatedAt
+    `SELECT CAST(r.Id AS VARCHAR(36)) AS Id, r.Title, r.Source, r.Prompt, r.SqlText, r.ChartConfigJson, r.Narrative,
+            r.SortOrder, r.CreatedAt, r.UpdatedAt
      FROM dbo.SndApp_SavedReport r
      INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
      INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
@@ -346,6 +352,7 @@ export async function getSavedReportFull(
     sqlText: row.SqlText,
     chartConfigJson: row.ChartConfigJson,
     narrative: row.Narrative,
+    sortOrder: row.SortOrder ?? 0,
     createdAt: rowDate(row.CreatedAt),
     updatedAt: rowDate(row.UpdatedAt),
   };
@@ -384,4 +391,224 @@ export async function deleteSavedReport(ownerId: string, reportId: string): Prom
      WHERE r.Id = @rid AND w.UserId = @oid`,
   );
   return (res.rowsAffected?.[0] ?? 0) > 0;
+}
+
+/** Optional title and/or target section; at least one must be provided. Runs in one transaction. */
+export async function patchSavedReport(
+  ownerId: string,
+  reportId: string,
+  patch: { title?: string; sectionId?: string },
+): Promise<boolean> {
+  const titleTrim = typeof patch.title === "string" ? patch.title.trim() : "";
+  const hasTitle = titleTrim.length > 0;
+  const targetSid =
+    typeof patch.sectionId === "string" && patch.sectionId.trim() !== ""
+      ? patch.sectionId.trim()
+      : null;
+  if (!hasTitle && !targetSid) return false;
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    if (targetSid) {
+      const cur = await new sql.Request(transaction)
+        .input("rid", sql.UniqueIdentifier, reportId)
+        .input("oid", sql.UniqueIdentifier, ownerId)
+        .query<{ SectionId: string }>(
+          `SELECT CAST(r.SectionId AS VARCHAR(36)) AS SectionId
+           FROM dbo.SndApp_SavedReport r
+           INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+           INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+           WHERE r.Id = @rid AND w.UserId = @oid`,
+        );
+      const currentSid = cur.recordset[0]?.SectionId;
+      if (!currentSid) {
+        await transaction.rollback();
+        return false;
+      }
+      if (currentSid.toLowerCase() !== targetSid.toLowerCase()) {
+        const moveReq = new sql.Request(transaction);
+        moveReq.input("rid", sql.UniqueIdentifier, reportId);
+        moveReq.input("oid", sql.UniqueIdentifier, ownerId);
+        moveReq.input("targetSid", sql.UniqueIdentifier, targetSid);
+        const moved = await moveReq.query(
+          `UPDATE r
+           SET r.SectionId = tgt.Id,
+               r.SortOrder = (
+                 SELECT ISNULL(MAX(x.SortOrder), -1) + 1
+                 FROM dbo.SndApp_SavedReport x
+                 WHERE x.SectionId = tgt.Id AND x.Id <> r.Id
+               ),
+               r.UpdatedAt = SYSUTCDATETIME()
+           FROM dbo.SndApp_SavedReport r
+           INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+           INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId AND w.UserId = @oid
+           INNER JOIN dbo.SndApp_WorkspaceSection tgt ON tgt.Id = @targetSid
+           INNER JOIN dbo.SndApp_Workspace tw ON tw.Id = tgt.WorkspaceId AND tw.UserId = @oid
+           WHERE r.Id = @rid`,
+        );
+        if ((moved.rowsAffected?.[0] ?? 0) === 0) {
+          await transaction.rollback();
+          return false;
+        }
+      }
+    }
+
+    if (hasTitle) {
+      const titleReq = new sql.Request(transaction);
+      titleReq.input("rid", sql.UniqueIdentifier, reportId);
+      titleReq.input("oid", sql.UniqueIdentifier, ownerId);
+      titleReq.input("title", sql.NVarChar(500), titleTrim.slice(0, 500));
+      const upd = await titleReq.query(
+        `UPDATE r SET r.Title = @title, r.UpdatedAt = SYSUTCDATETIME()
+         FROM dbo.SndApp_SavedReport r
+         INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+         INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+         WHERE r.Id = @rid AND w.UserId = @oid`,
+      );
+      if ((upd.rowsAffected?.[0] ?? 0) === 0) {
+        await transaction.rollback();
+        return false;
+      }
+    }
+
+    await transaction.commit();
+    return true;
+  } catch (e) {
+    await transaction.rollback();
+    throw e;
+  }
+}
+
+export async function reorderSavedReports(
+  ownerId: string,
+  sectionId: string,
+  orderedReportIds: string[],
+): Promise<boolean> {
+  if (orderedReportIds.length === 0) return true;
+  const pool = await getPool();
+  const check = await pool
+    .request()
+    .input("sid", sql.UniqueIdentifier, sectionId)
+    .input("oid", sql.UniqueIdentifier, ownerId)
+    .query<{ Id: string }>(
+      `SELECT CAST(r.Id AS VARCHAR(36)) AS Id
+       FROM dbo.SndApp_SavedReport r
+       INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+       INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+       WHERE sec.Id = @sid AND w.UserId = @oid`,
+    );
+  const existing = new Set(check.recordset.map((r) => r.Id.toLowerCase()));
+  if (existing.size !== orderedReportIds.length) return false;
+  for (const id of orderedReportIds) {
+    if (!existing.has(id.toLowerCase())) return false;
+  }
+
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    for (let i = 0; i < orderedReportIds.length; i++) {
+      const req = new sql.Request(transaction);
+      req.input("rid", sql.UniqueIdentifier, orderedReportIds[i]);
+      req.input("oid", sql.UniqueIdentifier, ownerId);
+      req.input("sid", sql.UniqueIdentifier, sectionId);
+      req.input("so", sql.Int, i);
+      await req.query(
+        `UPDATE r SET r.SortOrder = @so, r.UpdatedAt = SYSUTCDATETIME()
+         FROM dbo.SndApp_SavedReport r
+         INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+         INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+         WHERE r.Id = @rid AND sec.Id = @sid AND w.UserId = @oid`,
+      );
+    }
+    await transaction.commit();
+    return true;
+  } catch (e) {
+    await transaction.rollback();
+    throw e;
+  }
+}
+
+export async function reorderSections(
+  ownerId: string,
+  workspaceId: string,
+  orderedSectionIds: string[],
+): Promise<boolean> {
+  if (orderedSectionIds.length === 0) return true;
+  const pool = await getPool();
+  const check = await pool
+    .request()
+    .input("wid", sql.UniqueIdentifier, workspaceId)
+    .input("oid", sql.UniqueIdentifier, ownerId)
+    .query<{ Id: string }>(
+      `SELECT CAST(s.Id AS VARCHAR(36)) AS Id
+       FROM dbo.SndApp_WorkspaceSection s
+       INNER JOIN dbo.SndApp_Workspace w ON w.Id = s.WorkspaceId
+       WHERE s.WorkspaceId = @wid AND w.UserId = @oid`,
+    );
+  const existing = new Set(check.recordset.map((r) => r.Id.toLowerCase()));
+  if (existing.size !== orderedSectionIds.length) return false;
+  for (const id of orderedSectionIds) {
+    if (!existing.has(id.toLowerCase())) return false;
+  }
+
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    for (let i = 0; i < orderedSectionIds.length; i++) {
+      const req = new sql.Request(transaction);
+      req.input("sid", sql.UniqueIdentifier, orderedSectionIds[i]);
+      req.input("oid", sql.UniqueIdentifier, ownerId);
+      req.input("wid", sql.UniqueIdentifier, workspaceId);
+      req.input("so", sql.Int, i);
+      await req.query(
+        `UPDATE sec SET sec.SortOrder = @so, sec.UpdatedAt = SYSUTCDATETIME()
+         FROM dbo.SndApp_WorkspaceSection sec
+         INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+         WHERE sec.Id = @sid AND sec.WorkspaceId = @wid AND w.UserId = @oid`,
+      );
+    }
+    await transaction.commit();
+    return true;
+  } catch (e) {
+    await transaction.rollback();
+    throw e;
+  }
+}
+
+export async function reorderWorkspaces(ownerId: string, orderedWorkspaceIds: string[]): Promise<boolean> {
+  if (orderedWorkspaceIds.length === 0) return true;
+  const pool = await getPool();
+  const check = await pool
+    .request()
+    .input("oid", sql.UniqueIdentifier, ownerId)
+    .query<{ Id: string }>(
+      `SELECT CAST(Id AS VARCHAR(36)) AS Id FROM dbo.SndApp_Workspace WHERE UserId = @oid`,
+    );
+  const existing = new Set(check.recordset.map((r) => r.Id.toLowerCase()));
+  if (existing.size !== orderedWorkspaceIds.length) return false;
+  for (const id of orderedWorkspaceIds) {
+    if (!existing.has(id.toLowerCase())) return false;
+  }
+
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    for (let i = 0; i < orderedWorkspaceIds.length; i++) {
+      const req = new sql.Request(transaction);
+      req.input("id", sql.UniqueIdentifier, orderedWorkspaceIds[i]);
+      req.input("oid", sql.UniqueIdentifier, ownerId);
+      req.input("so", sql.Int, i);
+      await req.query(
+        `UPDATE dbo.SndApp_Workspace SET SortOrder = @so, UpdatedAt = SYSUTCDATETIME()
+         WHERE Id = @id AND UserId = @oid`,
+      );
+    }
+    await transaction.commit();
+    return true;
+  } catch (e) {
+    await transaction.rollback();
+    throw e;
+  }
 }
