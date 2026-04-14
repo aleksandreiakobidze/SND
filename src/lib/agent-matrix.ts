@@ -66,6 +66,14 @@ export function buildMatrixFromWide(
   };
 }
 
+/**
+ * Column order for matrix Excel/CSV: row labels first, then time/value columns, then Total.
+ * (Plain `Object.keys()` on export rows would sort numeric string keys like "1","2" before "Brand".)
+ */
+export function matrixExportColumnOrder(model: AgentMatrixModel, rowHeader: string): string[] {
+  return [rowHeader, ...model.colLabels, "Total"];
+}
+
 /** Flat rows for Excel export (one row per matrix row + total row). */
 export function matrixToFlatExportRows(
   model: AgentMatrixModel,

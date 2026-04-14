@@ -35,7 +35,9 @@ import {
   getVariantsForAgentChart,
   defaultShowDataLabelsForAgent,
 } from "@/lib/chart-variant-presets";
-import { matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { matrixExportColumnOrder, matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { buildAgentMatrixExportModel } from "@/lib/agent-matrix-export";
+import { coercePageSize } from "@/lib/report-pagination-presets";
 import { ComparisonMatrixTable } from "@/components/agent/ComparisonMatrixTable";
 import { useAgentMatrixModel } from "@/hooks/use-agent-matrix-model";
 
@@ -80,6 +82,8 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
   const [dataView, setDataView] = useState<"chart" | "matrix" | "flat">("chart");
   const [chartVariant, setChartVariant] = useState<ChartVariant | null>(null);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [reportPageSize, setReportPageSize] = useState(() => coercePageSize(10));
+  const [matrixPageIndex, setMatrixPageIndex] = useState(0);
 
   const hasChartable = Boolean(
     chartConfig && data && data.length > 0 && chartConfig.type !== "table" && chartConfig.type !== "number",
@@ -93,6 +97,14 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
     [comparison?.longData, data],
   );
 
+  const toolbarRowCountBadge = useMemo(
+    () =>
+      dataView === "matrix" && matrixView
+        ? matrixView.model.rowLabels.length
+        : flatTableData.length,
+    [dataView, matrixView, flatTableData],
+  );
+
   const idealDataView: "chart" | "matrix" | "flat" = showMatrix
     ? "matrix"
     : hasChartable
@@ -103,6 +115,17 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
   useEffect(() => {
     setDataView(idealDataView);
   }, [idealDataView, report.id]);
+
+  useEffect(() => {
+    setMatrixPageIndex(0);
+  }, [report.id]);
+
+  useEffect(() => {
+    if (!matrixView) return;
+    const n = matrixView.model.rowLabels.length;
+    const pc = Math.max(1, Math.ceil(n / reportPageSize));
+    setMatrixPageIndex((i) => Math.min(i, pc - 1));
+  }, [matrixView, data, reportPageSize]);
 
   const exportRows = useMemo(() => {
     const src = flatTableData;
@@ -158,14 +181,20 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
   }
 
   async function exportExcel() {
+    if (exportingExcel) return;
     if (dataView === "matrix" && matrixView) {
       setExportingExcel(true);
       try {
-        const rows = matrixToFlatExportRows(matrixView.model, matrixView.rowDimLabel);
+        const model = buildAgentMatrixExportModel(chartConfig, data ?? undefined);
+        if (!model) return;
+        const rows = matrixToFlatExportRows(model, matrixView.rowDimLabel);
         const safeTitle = report.title.replace(/[/\\?%*:[\]]/g, "-").trim() || "report";
         await downloadExcelFromRows(rows, `workspace_${safeTitle}_matrix`, {
           sheetName: `${safeTitle.slice(0, 20)}_matrix`.slice(0, 31),
+          columnOrder: matrixExportColumnOrder(model, matrixView.rowDimLabel),
         });
+      } catch (e) {
+        console.error(e);
       } finally {
         setExportingExcel(false);
       }
@@ -182,6 +211,8 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
         totals,
         totalLabel: t("tableTotal"),
       });
+    } catch (e) {
+      console.error(e);
     } finally {
       setExportingExcel(false);
     }
@@ -387,6 +418,7 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                       variant="default"
                       size="sm"
                       className="h-7 text-xs"
+                      title={t("exportFullReportTooltip")}
                       disabled={
                         loading ||
                         exportingExcel ||
@@ -395,10 +427,10 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                       onClick={() => void exportExcel()}
                     >
                       <FileSpreadsheet className="h-3 w-3 mr-1" />
-                      {exportingExcel ? t("loading") : t("exportExcel")}
+                      {exportingExcel ? t("loading") : t("exportFullReport")}
                     </Button>
                     <Badge variant="outline" className="text-xs">
-                      {data!.length} {t("rows")}
+                      {toolbarRowCountBadge} {t("rows")}
                     </Badge>
                   </div>
                 </div>
@@ -428,14 +460,21 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                     measureLabel={matrixView.measureLabel}
                     t={t}
                     formatCell={defaultChartValueFormat}
+                    pageSize={reportPageSize}
+                    pageIndex={matrixPageIndex}
+                    onPageSizeChange={setReportPageSize}
+                    onPageIndexChange={setMatrixPageIndex}
                   />
                 ) : (
                   <DataTable
                     data={flatTableData}
                     title="workspace_report"
-                    pageSize={10}
+                    pageSize={reportPageSize}
                     showTotals
                     exportable={!hasChartable && !showMatrix}
+                    onPageSizeChange={setReportPageSize}
+                    exportExcelTooltip={t("exportFullReportTooltip")}
+                    exportLabelFullReport
                   />
                 )}
               </Card>

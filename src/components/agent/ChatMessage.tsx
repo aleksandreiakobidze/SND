@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Bot,
   User,
@@ -33,7 +33,9 @@ import {
   getVariantsForAgentChart,
   defaultShowDataLabelsForAgent,
 } from "@/lib/chart-variant-presets";
-import { matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { matrixExportColumnOrder, matrixToFlatExportRows } from "@/lib/agent-matrix";
+import { buildAgentMatrixExportModel } from "@/lib/agent-matrix-export";
+import { coercePageSize } from "@/lib/report-pagination-presets";
 import { ComparisonMatrixTable } from "@/components/agent/ComparisonMatrixTable";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { useAgentMatrixModel } from "@/hooks/use-agent-matrix-model";
@@ -83,6 +85,20 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
   const [dataView, setDataView] = useState<"chart" | "matrix" | "flat">(() =>
     showMatrix ? "matrix" : hasChart ? "chart" : "flat",
   );
+  const [reportPageSize, setReportPageSize] = useState(() => coercePageSize(10));
+  const [matrixPageIndex, setMatrixPageIndex] = useState(0);
+  const [exportingMatrix, setExportingMatrix] = useState(false);
+
+  useEffect(() => {
+    setMatrixPageIndex(0);
+  }, [message.id]);
+
+  useEffect(() => {
+    if (!matrixView) return;
+    const n = matrixView.model.rowLabels.length;
+    const pc = Math.max(1, Math.ceil(n / reportPageSize));
+    setMatrixPageIndex((i) => Math.min(i, pc - 1));
+  }, [matrixView, message.data, reportPageSize]);
 
   if (message.loading) {
     return (
@@ -127,6 +143,11 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
 
   const flatTableData = comparison?.longData ?? message.data ?? [];
 
+  const toolbarRowCountBadge =
+    dataView === "matrix" && matrixView
+      ? matrixView.model.rowLabels.length
+      : flatTableData.length;
+
   const showDataLabelsComputed =
     message.chartConfig && message.data?.length
       ? defaultShowDataLabelsForAgent(
@@ -137,11 +158,21 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
       : true;
 
   async function handleExportMatrix() {
-    if (!matrixView) return;
-    const rows = matrixToFlatExportRows(matrixView.model, matrixView.rowDimLabel);
-    await downloadExcelFromRows(rows, `comparison-matrix-${Date.now()}`, {
-      sheetName: message.chartConfig?.title?.slice(0, 31) ?? "Matrix",
-    });
+    if (!matrixView || exportingMatrix) return;
+    setExportingMatrix(true);
+    try {
+      const model = buildAgentMatrixExportModel(message.chartConfig, message.data);
+      if (!model) return;
+      const rows = matrixToFlatExportRows(model, matrixView.rowDimLabel);
+      await downloadExcelFromRows(rows, `comparison-matrix-${Date.now()}`, {
+        sheetName: message.chartConfig?.title?.slice(0, 31) ?? "Matrix",
+        columnOrder: matrixExportColumnOrder(model, matrixView.rowDimLabel),
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setExportingMatrix(false);
+    }
   }
 
   return (
@@ -248,15 +279,17 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs ml-1"
+                  disabled={exportingMatrix}
+                  title={t("exportFullReportTooltip")}
                   onClick={() => void handleExportMatrix()}
                 >
                   <FileSpreadsheet className="h-3 w-3 mr-1" />
-                  {t("agentExportMatrix")}
+                  {exportingMatrix ? t("loading") : t("exportFullReport")}
                 </Button>
               )}
 
               <Badge variant="outline" className="ml-auto text-xs">
-                {message.data!.length} {t("rows")}
+                {toolbarRowCountBadge} {t("rows")}
               </Badge>
             </div>
 
@@ -283,9 +316,20 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                   rowDimLabel={matrixView.rowDimLabel}
                   measureLabel={matrixView.measureLabel}
                   t={t}
+                  pageSize={reportPageSize}
+                  pageIndex={matrixPageIndex}
+                  onPageSizeChange={setReportPageSize}
+                  onPageIndexChange={setMatrixPageIndex}
                 />
               ) : (
-                <DataTable data={flatTableData} title="agent_result" pageSize={10} />
+                <DataTable
+                  data={flatTableData}
+                  title="agent_result"
+                  pageSize={reportPageSize}
+                  onPageSizeChange={setReportPageSize}
+                  exportExcelTooltip={t("exportFullReportTooltip")}
+                  exportLabelFullReport
+                />
               )}
             </Card>
           </div>

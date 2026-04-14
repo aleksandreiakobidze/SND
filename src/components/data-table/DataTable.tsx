@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -23,7 +23,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowUpDown, Download, ChevronLeft, ChevronRight, FileSpreadsheet } from "lucide-react";
+import { ArrowUpDown, Download, FileSpreadsheet } from "lucide-react";
+import { ReportPaginationBar } from "@/components/report/ReportPaginationBar";
+import { coercePageSize } from "@/lib/report-pagination-presets";
 import { useLocale } from "@/lib/locale-context";
 import { computeColumnTotals } from "@/lib/table-totals";
 import { orderKeysItemCodeBeforeItemName } from "@/lib/table-column-order";
@@ -52,6 +54,12 @@ interface DataTableProps {
   tableFrameClassName?: string;
   /** Search input placeholder */
   searchPlaceholder?: string;
+  /** Notified when the user changes rows-per-page (for sharing page size across report views). */
+  onPageSizeChange?: (size: number) => void;
+  /** Optional tooltip on the Excel button (e.g. full-dataset export hint). */
+  exportExcelTooltip?: string;
+  /** When true, Excel button label uses `exportFullReport` instead of `exportExcel`. */
+  exportLabelFullReport?: boolean;
 }
 
 export function DataTable({
@@ -65,6 +73,9 @@ export function DataTable({
   className,
   tableFrameClassName,
   searchPlaceholder,
+  onPageSizeChange: onPageSizeChangeProp,
+  exportExcelTooltip,
+  exportLabelFullReport = false,
 }: DataTableProps) {
   const { t } = useLocale();
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -118,6 +129,8 @@ export function DataTable({
     }));
   }, [tableData]);
 
+  const initialPageSize = coercePageSize(pageSize);
+
   const table = useReactTable({
     data: tableData,
     columns,
@@ -129,13 +142,22 @@ export function DataTable({
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    initialState: { pagination: { pageSize } },
+    initialState: { pagination: { pageSize: initialPageSize } },
   });
 
-  const filteredOriginals = table.getFilteredRowModel().rows.map((r) => r.original);
+  useEffect(() => {
+    const next = coercePageSize(pageSize);
+    if (table.getState().pagination.pageSize !== next) {
+      table.setPageSize(next);
+      table.setPageIndex(0);
+    }
+  }, [pageSize, table]);
+
+  /** Full filtered dataset for export — not paginated, not viewport-limited. */
+  const allFilteredRowsForExport = table.getFilteredRowModel().rows.map((r) => r.original);
   const columnKeys = tableData.length ? Object.keys(tableData[0]) : [];
   const columnTotals = showTotals
-    ? computeColumnTotals(columnKeys, filteredOriginals)
+    ? computeColumnTotals(columnKeys, allFilteredRowsForExport)
     : null;
   const hasAnyTotal =
     columnTotals && Object.values(columnTotals).some((v) => v !== null);
@@ -176,15 +198,18 @@ export function DataTable({
                 variant="default"
                 size="sm"
                 disabled={exportingExcel}
+                title={exportExcelTooltip}
                 onClick={() => {
                   void (async () => {
                     setExportingExcel(true);
                     try {
-                      await downloadExcelFromRows(filteredOriginals, title || "export", {
+                      await downloadExcelFromRows(allFilteredRowsForExport, title || "export", {
                         sheetName: (title || "data").replace(/[/\\?%*:[\]]/g, "-").slice(0, 31),
                         totals: showTotals ? columnTotals : null,
                         totalLabel: t("tableTotal"),
                       });
+                    } catch (e) {
+                      console.error(e);
                     } finally {
                       setExportingExcel(false);
                     }
@@ -193,13 +218,17 @@ export function DataTable({
                 className="h-9 shadow-sm"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
-                {exportingExcel ? t("loading") : t("exportExcel")}
+                {exportingExcel
+                  ? t("loading")
+                  : exportLabelFullReport
+                    ? t("exportFullReport")
+                    : t("exportExcel")}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  downloadCsvFromRows(filteredOriginals, title || "export", {
+                  downloadCsvFromRows(allFilteredRowsForExport, title || "export", {
                     totals: showTotals ? columnTotals : null,
                     totalLabel: t("tableTotal"),
                   })
@@ -273,50 +302,22 @@ export function DataTable({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} {t("rows")}
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs text-muted-foreground whitespace-nowrap">{t("rowsLabel")}</label>
-            <Input
-              type="number"
-              min={1}
-              max={10000}
-              value={table.getState().pagination.pageSize}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                if (val > 0) table.setPageSize(val);
-              }}
-              className="h-8 w-16 text-xs text-center [&::-webkit-inner-spin-button]:appearance-none"
-            />
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-2">
-              {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
+      <ReportPaginationBar
+        totalRowCount={table.getFilteredRowModel().rows.length}
+        pageSize={table.getState().pagination.pageSize}
+        pageIndex={table.getState().pagination.pageIndex}
+        pageCount={table.getPageCount()}
+        onPageSizeChange={(size) => {
+          table.setPageSize(size);
+          table.setPageIndex(0);
+          onPageSizeChangeProp?.(size);
+        }}
+        onPreviousPage={() => table.previousPage()}
+        onNextPage={() => table.nextPage()}
+        canPreviousPage={table.getCanPreviousPage()}
+        canNextPage={table.getCanNextPage()}
+        t={t}
+      />
     </div>
   );
 }

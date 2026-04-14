@@ -9,6 +9,11 @@ export type ExcelExportOptions = {
   /** Footer row: same shape as DataTable column totals */
   totals?: Record<string, number | null> | null;
   totalLabel?: string;
+  /**
+   * Column order for the sheet. Use for matrix exports so row-dimension columns (e.g. Brand)
+   * stay first — `Object.keys(row)` sorts numeric-like keys ("1","2") before other names.
+   */
+  columnOrder?: string[];
 };
 
 function excelCellValue(value: unknown): string | number {
@@ -26,7 +31,10 @@ export async function downloadExcelFromRows(
   if (!rows.length) return;
 
   const ExcelJS = (await import("exceljs")).default;
-  const headers = Object.keys(rows[0]);
+  const headers =
+    options?.columnOrder && options.columnOrder.length > 0
+      ? options.columnOrder
+      : Object.keys(rows[0]);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "SND Analytics";
   workbook.created = new Date();
