@@ -241,11 +241,11 @@ The user's question matches **comparison-style** analytics (e.g. compare, versus
 - Use **"table"** when the user needs a detailed grid or there are too many dimensions for a clear chart.
 
 ### SQL result shape (use clear English aliases)
-- **Preferred (tidy):** exactly three logical columns, e.g. **Month** (or Week / SaleDate), **Brand** (or Category / ProdT), **Revenue** (or Liters via SUM(TevadobaTotal)). Example: \`SELECT ... AS Month, ... AS Brand, SUM(Tanxa) AS Revenue ... GROUP BY Month, Brand\`.
-- **Alternative (wide):** one row per time period, one numeric column per top category; limit to **Top 5–10** categories by total and merge the rest as **Other** when possible.
+- **Preferred (tidy):** exactly three logical columns: **time bucket** (Month / Week / SaleDate), **dimension** (Brand / ProdT / Reg), and **one measure** — use the **same** measure the user asked for (liters → SUM(TevadobaTotal) AS Liters; revenue → SUM(Tanxa) AS Revenue; units → SUM(Raod) AS Quantity). Do **not** default to revenue when the user asked for liters or volume.
+- **Alternative (wide):** one row per time period, one numeric column per top category; limit to **Top 5–10** categories by total **for that measure** and merge the rest as **Other** when possible.
 
-### Volume
-- If there are many brands/categories, restrict to **Top 10** by total revenue (or relevant measure) and aggregate the remainder as **Other** so the chart stays readable.
+### Many categories
+- If there are many brands/categories, restrict to **Top 10** by the **relevant** measure total and aggregate the remainder as **Other** so the chart stays readable.
 
 ### Notes
 - Prefer **tooltip** and axis formatting over crowding the chart with data labels when there are many series or periods.

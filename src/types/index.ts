@@ -39,6 +39,9 @@ export interface ChartComparisonMeta {
   longData?: Record<string, unknown>[];
 }
 
+/** How to format chart/matrix numbers (from agent metric intent). */
+export type ChartMeasureDisplay = "liters" | "money" | "quantity" | "mixed";
+
 export interface ChartConfig {
   type: "bar" | "line" | "pie" | "area" | "table" | "number";
   xKey?: string;
@@ -47,6 +50,8 @@ export interface ChartConfig {
   colors?: string[];
   /** Set when the agent detects a comparison-style analytical request. */
   comparison?: ChartComparisonMeta;
+  /** Agent pipeline: which measure the user asked for (drives formatters). */
+  measureDisplay?: ChartMeasureDisplay;
 }
 
 export interface AgentResponse {

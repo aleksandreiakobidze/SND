@@ -6,6 +6,11 @@ import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canUseAgent } from "@/lib/auth-roles";
 import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
 import { postprocessAgentComparison } from "@/lib/agent-comparison-postprocess";
+import { detectMetricIntent, metricIntentToMeasureDisplay } from "@/lib/agent-metric-intent";
+import {
+  validateAgentResponse,
+  formatValidationFeedbackForRetry,
+} from "@/lib/agent-response-validate";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,10 +32,35 @@ export async function POST(req: NextRequest) {
 
     const lang = locale === "ka" ? "ka" : "en";
     const comparisonIntent = detectComparisonIntent(question);
-    const aiResponse = await generateSQLFromQuestion(question, history || [], lang, {
+    const metricIntent = detectMetricIntent(question);
+
+    const genOpts = {
       ownerHintsBlock: ownerHintsBlock || undefined,
       comparisonIntent,
-    });
+      metricIntent,
+    };
+
+    let aiResponse = await generateSQLFromQuestion(question, history || [], lang, genOpts);
+
+    let validation = validateAgentResponse(aiResponse, metricIntent);
+    if (!validation.ok) {
+      aiResponse = await generateSQLFromQuestion(question, history || [], lang, {
+        ...genOpts,
+        validationFeedback: formatValidationFeedbackForRetry(validation.reasons),
+      });
+      validation = validateAgentResponse(aiResponse, metricIntent);
+      if (!validation.ok) {
+        return NextResponse.json(
+          {
+            error: "Agent response failed metric validation",
+            details: validation.reasons.join(" "),
+            sql: aiResponse.sql,
+            narrative: aiResponse.narrative,
+          },
+          { status: 422 }
+        );
+      }
+    }
 
     let data: Record<string, unknown>[] = [];
     try {
@@ -52,7 +82,10 @@ export async function POST(req: NextRequest) {
       chartType: aiResponse.chartType,
       chartConfig: aiResponse.chartConfig,
       data,
+      metricIntent,
     });
+
+    const measureDisplay = metricIntentToMeasureDisplay(metricIntent.kind);
 
     return NextResponse.json({
       sql: aiResponse.sql,
@@ -64,6 +97,7 @@ export async function POST(req: NextRequest) {
             yKeys: processed.chartConfig.yKeys,
             title: processed.chartConfig.title,
             comparison: processed.chartConfig.comparison,
+            ...(measureDisplay ? { measureDisplay } : {}),
           }
         : null,
       narrative: aiResponse.narrative,

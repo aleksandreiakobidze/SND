@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth-route-helpers";
 import type { ChartConfig } from "@/types";
 import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
 import { postprocessAgentComparison } from "@/lib/agent-comparison-postprocess";
+import { detectMetricIntent, metricIntentToMeasureDisplay } from "@/lib/agent-metric-intent";
 
 type Params = { reportId: string };
 
@@ -41,6 +42,7 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
     }
     const promptText = report.prompt?.trim() || report.title?.trim() || "";
     const intent = detectComparisonIntent(promptText);
+    const metricIntent = detectMetricIntent(promptText);
     const processed = postprocessAgentComparison({
       intent,
       chartType: storedConfig?.type ?? "bar",
@@ -52,7 +54,10 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
           }
         : null,
       data: rawData,
+      metricIntent,
     });
+    const measureDisplayResolved =
+      storedConfig?.measureDisplay ?? metricIntentToMeasureDisplay(metricIntent.kind);
     const chartConfig: ChartConfig | null = processed.chartConfig
       ? {
           type: processed.chartType,
@@ -61,6 +66,7 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
           title: processed.chartConfig.title ?? storedConfig?.title,
           comparison: processed.chartConfig.comparison,
           colors: storedConfig?.colors,
+          ...(measureDisplayResolved ? { measureDisplay: measureDisplayResolved } : {}),
         }
       : storedConfig;
 

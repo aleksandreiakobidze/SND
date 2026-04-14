@@ -51,3 +51,12 @@ export function formatTooltipForMeasure(measure: "money" | "liters"): (v: number
 export function defaultChartValueFormat(value: number): string {
   return formatCurrencyCompact(value);
 }
+
+/** Plain numeric formatting (quantity, or mixed measures). */
+export function formatNumberCompact(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  const v = Math.abs(value);
+  if (v >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}

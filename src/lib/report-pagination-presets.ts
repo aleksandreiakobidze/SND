@@ -7,7 +7,7 @@ export function coercePageSize(
   n: number,
   options: readonly number[] = REPORT_PAGE_SIZE_OPTIONS,
 ): ReportPageSize {
-  if (!Number.isFinite(n) || n < 1) return options[0] ?? 10;
+  if (!Number.isFinite(n) || n < 1) return (options[0] ?? 10) as ReportPageSize;
   const match = options.find((o) => o === n);
   if (match !== undefined) return match as ReportPageSize;
   let best = options[0] ?? 10;

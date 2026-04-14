@@ -8,6 +8,8 @@ import {
 } from "./schema";
 import { getMinOrderRulesAgentPromptBlock } from "./online-transfer-rules";
 import type { ComparisonIntentResult } from "./agent-comparison-intent";
+import type { MetricIntentResult } from "./agent-metric-intent";
+import { getMetricIntentPromptBlock } from "./agent-metric-intent";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -34,16 +36,30 @@ export async function generateSQLFromQuestion(
   question: string,
   conversationHistory: ConversationMessage[] = [],
   locale: "en" | "ka" = "en",
-  options?: { ownerHintsBlock?: string; comparisonIntent?: ComparisonIntentResult },
+  options?: {
+    ownerHintsBlock?: string;
+    comparisonIntent?: ComparisonIntentResult;
+    metricIntent?: MetricIntentResult;
+    /** When set, previous JSON failed validation — model must fix and return new JSON. */
+    validationFeedback?: string;
+  },
 ): Promise<AIResponse> {
   const ownerBlock = options?.ownerHintsBlock?.trim()
     ? `\n\n${options.ownerHintsBlock.trim()}\n\n`
     : "\n\n";
+  const metricIntent = options?.metricIntent;
+  const metricBlock =
+    metricIntent !== undefined
+      ? `\n\n${getMetricIntentPromptBlock(locale, metricIntent)}\n\n`
+      : "";
   const comparisonBlock =
     options?.comparisonIntent?.isComparison === true
       ? `\n\n${getComparisonChartPromptBlock(locale)}\n\n`
       : "";
-  const systemPrompt = `${VIEW_ROUTING_INSTRUCTIONS}\n\n${SCHEMA_DESCRIPTION}\n\n${ONLINE_SCHEMA_DESCRIPTION}\n\n${getMinOrderRulesAgentPromptBlock()}${ownerBlock}${comparisonBlock}${getResponseFormatInstructions(locale)}`;
+  const fixBlock = options?.validationFeedback?.trim()
+    ? `\n\n## CORRECTION REQUIRED\nYour previous response was **rejected** by validation. Fix ALL issues below and return **only** a new valid JSON object (same schema as before).\n\n${options.validationFeedback.trim()}\n\n`
+    : "";
+  const systemPrompt = `${VIEW_ROUTING_INSTRUCTIONS}\n\n${SCHEMA_DESCRIPTION}\n\n${ONLINE_SCHEMA_DESCRIPTION}\n\n${getMinOrderRulesAgentPromptBlock()}${ownerBlock}${metricBlock}${comparisonBlock}${getResponseFormatInstructions(locale)}${fixBlock}`;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

@@ -21,7 +21,14 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DynamicChart } from "@/components/charts/DynamicChart";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
-import { defaultChartValueFormat, formatCurrencyFull } from "@/lib/chart-number-format";
+import {
+  defaultChartValueFormat,
+  formatCurrencyFull,
+  formatLitersCompact,
+  formatLitersFull,
+  formatNumberCompact,
+} from "@/lib/chart-number-format";
+import { resolveMeasureDisplay } from "@/lib/agent-metric-intent";
 import { DataTable } from "@/components/data-table/DataTable";
 import { useLocale } from "@/lib/locale-context";
 import type { SavedReportMeta } from "@/lib/workspace-db";
@@ -254,6 +261,28 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
         )
       : true;
 
+  const measureResolved = useMemo(
+    () => resolveMeasureDisplay(chartConfig, data ?? undefined),
+    [chartConfig, data],
+  );
+  const chartAxisFormatter = useMemo(() => {
+    if (measureResolved === "liters") return formatLitersCompact;
+    if (measureResolved === "quantity" || measureResolved === "mixed") return formatNumberCompact;
+    return defaultChartValueFormat;
+  }, [measureResolved]);
+  const chartTooltipFormatter = useMemo(() => {
+    if (measureResolved === "liters") return formatLitersFull;
+    if (measureResolved === "quantity" || measureResolved === "mixed")
+      return (v: number) =>
+        Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "";
+    return formatCurrencyFull;
+  }, [measureResolved]);
+  const matrixCellFormatter = useMemo(() => {
+    if (measureResolved === "liters") return formatLitersCompact;
+    if (measureResolved === "quantity" || measureResolved === "mixed") return formatNumberCompact;
+    return defaultChartValueFormat;
+  }, [measureResolved]);
+
   useEffect(() => {
     setChartVariant(null);
   }, [chartConfig?.type]);
@@ -447,8 +476,8 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                         nameKey={nameKey}
                         valueKeys={valueKeys}
                         height={320}
-                        formatter={defaultChartValueFormat}
-                        tooltipFormatter={formatCurrencyFull}
+                        formatter={chartAxisFormatter}
+                        tooltipFormatter={chartTooltipFormatter}
                         showDataLabels={showDataLabelsComputed}
                       />
                     );
@@ -459,10 +488,10 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                     rowDimLabel={matrixView.rowDimLabel}
                     measureLabel={matrixView.measureLabel}
                     t={t}
-                    formatCell={defaultChartValueFormat}
+                    formatCell={matrixCellFormatter}
                     pageSize={reportPageSize}
                     pageIndex={matrixPageIndex}
-                    onPageSizeChange={setReportPageSize}
+                    onPageSizeChange={(n) => setReportPageSize(coercePageSize(n))}
                     onPageIndexChange={setMatrixPageIndex}
                   />
                 ) : (
@@ -472,7 +501,7 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
                     pageSize={reportPageSize}
                     showTotals
                     exportable={!hasChartable && !showMatrix}
-                    onPageSizeChange={setReportPageSize}
+                    onPageSizeChange={(n) => setReportPageSize(coercePageSize(n))}
                     exportExcelTooltip={t("exportFullReportTooltip")}
                     exportLabelFullReport
                   />

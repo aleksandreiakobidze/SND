@@ -1,6 +1,7 @@
 import { isTechnicalIdColumnKey } from "@/lib/technical-columns";
 import type { ChartComparisonMeta, ChartConfig } from "@/types";
 import type { ComparisonIntentResult } from "@/lib/agent-comparison-intent";
+import type { MetricIntentResult } from "@/lib/agent-metric-intent";
 
 export const DEFAULT_COMPARISON_TOP_N = 10;
 const DEFAULT_TOP_N = DEFAULT_COMPARISON_TOP_N;
@@ -54,12 +55,33 @@ function isLikelyMeasureColumnKey(key: string): boolean {
   return /revenue|tanxa|amount|total|liters|tevadoba|raod|qty|quantity|value|sum|sales|gross|net|money|amt/i.test(k);
 }
 
+function measureIntentBoost(key: string, intent: MetricIntentResult | null | undefined): number {
+  if (!intent) return 0;
+  const k = key.toLowerCase();
+  switch (intent.kind) {
+    case "volume_liters":
+      if (/liters|tevadoba|volume/i.test(k)) return 8;
+      if (/tanxa|revenue/i.test(k)) return -4;
+      return 0;
+    case "quantity_units":
+      if (/raod|qty|quantity|units/i.test(k)) return 8;
+      return 0;
+    case "revenue_gel":
+      if (/tanxa|revenue|amount/i.test(k)) return 8;
+      if (/tevadoba|liters/i.test(k)) return -3;
+      return 0;
+    default:
+      return 0;
+  }
+}
+
 /**
  * Pick the single measure column when multiple numeric columns exist (e.g. Month=3 + Revenue).
  */
 function pickMeasureColumnKey(
   numericKeys: string[],
   rows: Record<string, unknown>[],
+  metricIntent?: MetricIntentResult | null,
 ): string | null {
   const nonTime = numericKeys.filter((k) => !isTimeBucketColumnKey(k));
   if (nonTime.length === 1) return nonTime[0];
@@ -68,8 +90,12 @@ function pickMeasureColumnKey(
       k,
       nameHit: isLikelyMeasureColumnKey(k) ? 1 : 0,
       avgAbs: rows.reduce((s, r) => s + Math.abs(toNumber(r[k])), 0) / rows.length,
+      intentB: measureIntentBoost(k, metricIntent),
     }));
-    scored.sort((a, b) => b.nameHit - a.nameHit || b.avgAbs - a.avgAbs);
+    scored.sort(
+      (a, b) =>
+        b.intentB - a.intentB || b.nameHit - a.nameHit || b.avgAbs - a.avgAbs,
+    );
     return scored[0]?.k ?? null;
   }
   // All numeric columns look like time buckets — try value heuristics (month 1–12 vs money)
@@ -86,13 +112,14 @@ function pickMeasureColumnKey(
 /** Prefer Month/Dimension/measure layout for tidy data. */
 export function inferTidyLongKeys(
   rows: Record<string, unknown>[],
+  metricIntent?: MetricIntentResult | null,
 ): { timeKey: string; dimKey: string; measureKey: string } | null {
   if (rows.length === 0) return null;
   const keys = keysForRow(rows[0]);
   if (keys.length < 3) return null;
 
   const numericKeys = keys.filter((k) => rows.every((r) => isNumericLike(r[k])));
-  const measureKey = pickMeasureColumnKey(numericKeys, rows);
+  const measureKey = pickMeasureColumnKey(numericKeys, rows, metricIntent);
   if (!measureKey) return null;
 
   const catKeys = keys.filter((k) => k !== measureKey);
@@ -234,6 +261,8 @@ export type PostprocessParams = {
   chartType: ChartConfig["type"];
   chartConfig: Pick<ChartConfig, "xKey" | "yKeys" | "title"> | null;
   data: Record<string, unknown>[];
+  /** Prefer this measure when inferring tidy long columns */
+  metricIntent?: MetricIntentResult | null;
 };
 
 export type PostprocessResult = {
@@ -246,7 +275,7 @@ export type PostprocessResult = {
  * Apply BI rules: coerce pie→bar for comparisons, pivot long→wide, Top-N wide series.
  */
 export function postprocessAgentComparison(p: PostprocessParams): PostprocessResult {
-  const { intent, chartConfig } = p;
+  const { intent, chartConfig, metricIntent } = p;
   let chartType = p.chartType;
   let data = p.data;
   let nextConfig: ChartConfig | null = chartConfig
@@ -267,7 +296,7 @@ export function postprocessAgentComparison(p: PostprocessParams): PostprocessRes
   }
 
   if (chartType === "table") {
-    const tidy = inferTidyLongKeys(data);
+    const tidy = inferTidyLongKeys(data, metricIntent);
     if (tidy && intent.isComparison) {
       return {
         chartType: "table",
@@ -300,7 +329,7 @@ export function postprocessAgentComparison(p: PostprocessParams): PostprocessRes
     if (nextConfig) nextConfig.type = "bar";
   }
 
-  const tidy = inferTidyLongKeys(data);
+  const tidy = inferTidyLongKeys(data, metricIntent);
   if (tidy) {
     const pivoted = pivotLongToWideTopN(data, tidy.timeKey, tidy.dimKey, tidy.measureKey, DEFAULT_TOP_N);
     data = pivoted.data;

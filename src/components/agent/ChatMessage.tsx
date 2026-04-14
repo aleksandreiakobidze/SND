@@ -23,7 +23,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DynamicChart } from "@/components/charts/DynamicChart";
 import { FlexChart, type ChartVariant } from "@/components/charts/FlexChart";
-import { formatCurrencyCompact, formatCurrencyFull } from "@/lib/chart-number-format";
+import {
+  formatCurrencyCompact,
+  formatCurrencyFull,
+  formatLitersCompact,
+  formatLitersFull,
+  formatNumberCompact,
+} from "@/lib/chart-number-format";
+import { resolveMeasureDisplay } from "@/lib/agent-metric-intent";
 import { DataTable } from "@/components/data-table/DataTable";
 import { useLocale } from "@/lib/locale-context";
 import type { AgentMessage, ChartConfig } from "@/types";
@@ -156,6 +163,29 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
           !!(comparison?.enabled || matrixView),
         )
       : true;
+
+  const measureResolved = resolveMeasureDisplay(message.chartConfig, message.data);
+  const chartAxisFormatter =
+    measureResolved === "liters"
+      ? formatLitersCompact
+      : measureResolved === "quantity" || measureResolved === "mixed"
+        ? formatNumberCompact
+        : formatCurrencyCompact;
+  const chartTooltipFormatter =
+    measureResolved === "liters"
+      ? formatLitersFull
+      : measureResolved === "quantity" || measureResolved === "mixed"
+        ? (v: number) =>
+            Number.isFinite(v)
+              ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+              : ""
+        : formatCurrencyFull;
+  const matrixCellFormatter =
+    measureResolved === "liters"
+      ? formatLitersCompact
+      : measureResolved === "quantity" || measureResolved === "mixed"
+        ? formatNumberCompact
+        : formatCurrencyCompact;
 
   async function handleExportMatrix() {
     if (!matrixView || exportingMatrix) return;
@@ -304,8 +334,8 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                       nameKey={nameKey}
                       valueKeys={valueKeys}
                       height={320}
-                      formatter={formatCurrencyCompact}
-                      tooltipFormatter={formatCurrencyFull}
+                      formatter={chartAxisFormatter}
+                      tooltipFormatter={chartTooltipFormatter}
                       showDataLabels={showDataLabelsComputed}
                     />
                   );
@@ -316,9 +346,10 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                   rowDimLabel={matrixView.rowDimLabel}
                   measureLabel={matrixView.measureLabel}
                   t={t}
+                  formatCell={matrixCellFormatter}
                   pageSize={reportPageSize}
                   pageIndex={matrixPageIndex}
-                  onPageSizeChange={setReportPageSize}
+                  onPageSizeChange={(n) => setReportPageSize(coercePageSize(n))}
                   onPageIndexChange={setMatrixPageIndex}
                 />
               ) : (
@@ -326,7 +357,7 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                   data={flatTableData}
                   title="agent_result"
                   pageSize={reportPageSize}
-                  onPageSizeChange={setReportPageSize}
+                  onPageSizeChange={(n) => setReportPageSize(coercePageSize(n))}
                   exportExcelTooltip={t("exportFullReportTooltip")}
                   exportLabelFullReport
                 />
