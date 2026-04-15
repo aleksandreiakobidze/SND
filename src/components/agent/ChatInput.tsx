@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Loader2, Mic, MicOff, Send } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Loader2, Mic, MicOff, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/lib/locale-context";
 import { useSpeechRecognition, type VoiceLang } from "@/hooks/useSpeechRecognition";
 import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/lib/i18n";
+
+const VOICE_AUTO_SEND_DELAY_MS = 3000;
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -20,11 +22,33 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
   const ph = placeholderKey ? t(placeholderKey) : t("askAnything");
   const [input, setInput] = useState("");
   const [voiceLang, setVoiceLang] = useState<VoiceLang>("en-US");
+  const [countdown, setCountdown] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef(input);
+  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { transcript, interimTranscript, listening, supported: sttSupported, start, stop, clearTranscript } = useSpeechRecognition();
+  const {
+    transcript, interimTranscript, listening,
+    supported: sttSupported, completedText,
+    start, stop, clearTranscript, clearCompleted,
+  } = useSpeechRecognition();
 
-  // Sync recognised transcript into textarea
+  useEffect(() => { inputRef.current = input; }, [input]);
+
+  const cancelAutoSend = useCallback(() => {
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setCountdown(null);
+  }, []);
+
+  // Sync live transcript into textarea while speaking
   useEffect(() => {
     if (transcript) {
       setInput(transcript);
@@ -40,7 +64,41 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
     }
   }, [input, interimTranscript]);
 
+  // When recognition finishes with text, populate input and start 3s auto-send
+  useEffect(() => {
+    if (!completedText) return;
+    const text = completedText;
+    clearCompleted();
+    setInput(text);
+
+    let remaining = VOICE_AUTO_SEND_DELAY_MS / 1000;
+    setCountdown(remaining);
+    countdownIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        setCountdown(remaining);
+      } else if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    }, 1000);
+    autoSendTimerRef.current = setTimeout(() => {
+      const current = inputRef.current.trim();
+      if (current && !disabled) {
+        onSend(current);
+        setInput("");
+        clearTranscript();
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+      }
+      cancelAutoSend();
+    }, VOICE_AUTO_SEND_DELAY_MS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedText]);
+
+  useEffect(() => () => cancelAutoSend(), [cancelAutoSend]);
+
   function handleSubmit() {
+    cancelAutoSend();
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
     if (listening) stop();
@@ -56,6 +114,7 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
     if (listening) {
       stop();
     } else {
+      cancelAutoSend();
       start(voiceLang);
     }
   }
@@ -96,6 +155,21 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
                 {t("voiceListen")}
               </span>
             )}
+
+            {/* Auto-send countdown badge */}
+            {countdown !== null && (
+              <span className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                Sending in {countdown}s
+                <button
+                  type="button"
+                  onClick={cancelAutoSend}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-amber-500/20 transition-colors"
+                  title="Cancel auto-send"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )}
           </div>
         )}
 
@@ -107,6 +181,7 @@ export function ChatInput({ onSend, disabled, placeholderKey }: ChatInputProps) 
               value={displayValue}
               onChange={(e) => {
                 setInput(e.target.value);
+                cancelAutoSend();
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {

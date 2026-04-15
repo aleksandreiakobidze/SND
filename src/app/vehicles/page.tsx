@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
 import { useLocale } from "@/lib/locale-context";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
@@ -17,8 +17,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Loader2, Pencil, X, Truck } from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, X, Truck, ChevronDown } from "lucide-react";
 
 interface VehicleRow {
   id: number;
@@ -65,6 +66,101 @@ function CapacityBar({ value, max, unit }: { value: number | null; max: number |
   );
 }
 
+function RegionCell({
+  driverId,
+  regions,
+  availableRegions,
+  onUpdate,
+}: {
+  driverId: number;
+  regions: string[];
+  availableRegions: string[];
+  onUpdate: (driverId: number, regions: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  async function toggle(code: string) {
+    const next = regions.includes(code)
+      ? regions.filter((r) => r !== code)
+      : [...regions, code];
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/vehicles/${driverId}/regions`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regions: next }),
+      });
+      if (res.ok) onUpdate(driverId, next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setOpen((p) => !p)}
+      >
+        {regions.length === 0 ? (
+          <span className="italic text-border">All regions</span>
+        ) : (
+          <span className="flex flex-wrap gap-1 max-w-[180px]">
+            {regions.slice(0, 3).map((r) => (
+              <Badge key={r} variant="secondary" className="text-[10px] px-1.5 py-0">
+                {r}
+              </Badge>
+            ))}
+            {regions.length > 3 && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                +{regions.length - 3}
+              </Badge>
+            )}
+          </span>
+        )}
+        <ChevronDown className="h-3 w-3 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-52 rounded-lg border bg-popover p-1 shadow-md max-h-60 overflow-y-auto">
+          {availableRegions.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">No regions found</p>
+          ) : (
+            availableRegions.map((code) => (
+              <label
+                key={code}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-border"
+                  checked={regions.includes(code)}
+                  disabled={saving}
+                  onChange={() => void toggle(code)}
+                />
+                {code}
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function VehiclesPage() {
   const { t } = useLocale();
   const { permissions } = useAuth();
@@ -77,6 +173,9 @@ export default function VehiclesPage() {
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  const [driverRegions, setDriverRegions] = useState<Record<number, string[]>>({});
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
 
   const loadVehicles = useCallback(async () => {
     setLoading(true);
@@ -96,9 +195,37 @@ export default function VehiclesPage() {
     }
   }, []);
 
+  const loadRegions = useCallback(async () => {
+    try {
+      const [regRes, allRes] = await Promise.all([
+        fetch("/api/regions", { credentials: "include" }),
+        fetch("/api/vehicles", { credentials: "include" }),
+      ]);
+      if (regRes.ok) {
+        const json = await regRes.json();
+        setAvailableRegions(json.regions ?? []);
+      }
+      const vehicleList: VehicleRow[] = allRes.ok ? (await allRes.json()).vehicles ?? [] : [];
+      const map: Record<number, string[]> = {};
+      await Promise.all(
+        vehicleList.map(async (v) => {
+          try {
+            const r = await fetch(`/api/vehicles/${v.id}/regions`, { credentials: "include" });
+            if (r.ok) {
+              const j = await r.json();
+              map[v.id] = j.regions ?? [];
+            }
+          } catch { /* ignore */ }
+        }),
+      );
+      setDriverRegions(map);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     void loadVehicles();
-  }, [loadVehicles]);
+    void loadRegions();
+  }, [loadVehicles, loadRegions]);
 
   function startEdit(v: VehicleRow) {
     setEditingId(v.id);
@@ -215,6 +342,7 @@ export default function VehiclesPage() {
                       <TableHead>{t("distLiters")} (max)</TableHead>
                       <TableHead>{t("distWeight")} (max)</TableHead>
                       <TableHead>{t("distOrders")} (max)</TableHead>
+                      <TableHead>Regions</TableHead>
                       <TableHead className="w-24" />
                     </TableRow>
                   </TableHeader>
@@ -284,6 +412,16 @@ export default function VehiclesPage() {
                                 />
                               </TableCell>
                               <TableCell>
+                                <RegionCell
+                                  driverId={v.id}
+                                  regions={driverRegions[v.id] ?? []}
+                                  availableRegions={availableRegions}
+                                  onUpdate={(id, regs) =>
+                                    setDriverRegions((prev) => ({ ...prev, [id]: regs }))
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell>
                                 <div className="flex items-center gap-1.5">
                                   <Button
                                     size="sm"
@@ -329,6 +467,16 @@ export default function VehiclesPage() {
                               </TableCell>
                               <TableCell className="text-sm tabular-nums text-muted-foreground">
                                 {v.maxOrders != null ? v.maxOrders : <span className="text-border">—</span>}
+                              </TableCell>
+                              <TableCell>
+                                <RegionCell
+                                  driverId={v.id}
+                                  regions={driverRegions[v.id] ?? []}
+                                  availableRegions={availableRegions}
+                                  onUpdate={(id, regs) =>
+                                    setDriverRegions((prev) => ({ ...prev, [id]: regs }))
+                                  }
+                                />
                               </TableCell>
                               <TableCell>
                                 <Button

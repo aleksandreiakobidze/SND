@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { executeReadOnlyQuery } from "@/lib/db";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canAssignSalesDriver } from "@/lib/auth-roles";
-import { listDriversWithCapacity } from "@/lib/online-drivers-db";
+import { listDriversWithCapacity, getAllDriverRegions } from "@/lib/online-drivers-db";
 import { buildUnassignedOrdersQuery } from "@/lib/sales-map-sql";
 import { buildNonDateConditions } from "@/lib/filters";
 import { autoDistribute, optimizeRouteOrder } from "@/lib/distribution/auto-distribute";
@@ -60,7 +60,10 @@ export async function POST(req: NextRequest) {
       })
       .filter((o): o is OrderForDistribution => o !== null);
 
-    const driversRaw = await listDriversWithCapacity();
+    const [driversRaw, regionMap] = await Promise.all([
+      listDriversWithCapacity(),
+      getAllDriverRegions(),
+    ]);
 
     let scheduledIds: number[] = [];
     let fleetFiltered = false;
@@ -83,6 +86,7 @@ export async function POST(req: NextRequest) {
         maxOrders: d.maxOrders ?? 0,
         vehiclePlate: d.vehiclePlate,
         vehicleType: d.vehicleType,
+        allowedRegions: regionMap.get(d.id) ?? [],
       }));
 
     const plan = autoDistribute(orders, drivers);

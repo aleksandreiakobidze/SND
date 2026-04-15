@@ -25,8 +25,7 @@ import {
 } from "lucide-react";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DistributionPanel, driverColor } from "@/components/sales-map/DistributionPanel";
-import { DriverColorLegend } from "@/components/sales-map/DriverColorLegend";
+import { DistributionPanel } from "@/components/sales-map/DistributionPanel";
 import type { DistributionPlan, OrderForDistribution } from "@/lib/distribution/distribution-types";
 import {
   Table,
@@ -36,6 +35,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MAP_DEFAULT_CENTER_GEORGIA, MAP_DEFAULT_ZOOM_GEORGIA } from "@/lib/map-defaults";
+import { fitMapToPoints } from "@/lib/map-viewport";
 
 export type SalesMapPointRow = Record<string, unknown>;
 
@@ -67,16 +68,23 @@ function rowHasAssignedDriver(row: SalesMapPointRow): boolean {
   return mz != null && String(mz).trim() !== "";
 }
 
+/** Row belongs to a driver by DB IdMdz or by distribution preview order id list. */
+function rowMatchesDistributionDriver(
+  row: SalesMapPointRow,
+  driverId: number,
+  previewOrderIds: Set<number>,
+): boolean {
+  const idMdz = row.IdMdz != null && row.IdMdz !== "" ? Number(row.IdMdz) : NaN;
+  if (Number.isFinite(idMdz) && idMdz === driverId) return true;
+  const idReal = Number(row.IdReal1);
+  if (Number.isFinite(idReal) && previewOrderIds.has(idReal)) return true;
+  return false;
+}
+
 function FitBounds({ latLngs }: { latLngs: L.LatLngTuple[] }) {
   const map = useMap();
   useEffect(() => {
-    if (latLngs.length === 0) return;
-    if (latLngs.length === 1) {
-      map.setView(latLngs[0], 11);
-      return;
-    }
-    const b = L.latLngBounds(latLngs);
-    map.fitBounds(b, { padding: [48, 48], maxZoom: 14 });
+    fitMapToPoints(map, latLngs);
   }, [map, latLngs]);
   return null;
 }
@@ -114,6 +122,7 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
   const [distPlan, setDistPlan] = useState<DistributionPlan | null>(null);
   const [distOrders, setDistOrders] = useState<OrderForDistribution[]>([]);
   const [distHoveredOrder, setDistHoveredOrder] = useState<number | null>(null);
+  const [mapFilterDriverId, setMapFilterDriverId] = useState<number | null>(null);
 
   const distOrderDriverMap = useMemo(() => {
     if (!distPlan) return new Map<number, number>();
@@ -241,7 +250,19 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
 
   useEffect(() => {
     setSelected(new Set());
+    setMapFilterDriverId(null);
   }, [mapDriverFilter]);
+
+  useEffect(() => {
+    if (!distPlan) {
+      setMapFilterDriverId(null);
+      return;
+    }
+    if (mapFilterDriverId == null) return;
+    if (!distPlan.driverStats.some((s) => s.driverId === mapFilterDriverId)) {
+      setMapFilterDriverId(null);
+    }
+  }, [distPlan, mapFilterDriverId]);
 
   const driverNameById = useMemo(() => {
     const m = new Map<number, string>();
@@ -255,14 +276,30 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
     return rows.filter((r) => !rowHasAssignedDriver(r));
   }, [rows, mapDriverFilter]);
 
+  const previewOrderIdsByDriver = useMemo(() => {
+    if (!distPlan || mapFilterDriverId == null) return null;
+    const stat = distPlan.driverStats.find((s) => s.driverId === mapFilterDriverId);
+    if (!stat) return null;
+    return new Set(stat.orderIds);
+  }, [distPlan, mapFilterDriverId]);
+
+  const rowsForMap = useMemo(() => {
+    if (mapFilterDriverId == null || !distPlan || previewOrderIdsByDriver == null) {
+      return rowsFilteredByDriver;
+    }
+    return rowsFilteredByDriver.filter((row) =>
+      rowMatchesDistributionDriver(row, mapFilterDriverId, previewOrderIdsByDriver),
+    );
+  }, [rowsFilteredByDriver, mapFilterDriverId, distPlan, previewOrderIdsByDriver]);
+
   const allowedOrderIdsForTable = useMemo(() => {
     const s = new Set<number>();
-    for (const r of rowsFilteredByDriver) {
+    for (const r of rowsForMap) {
       const id = Number(r.IdReal1);
       if (Number.isFinite(id)) s.add(id);
     }
     return s;
-  }, [rowsFilteredByDriver]);
+  }, [rowsForMap]);
 
   const linesForTable = useMemo(() => {
     const out: SalesMapPointRow[] = [];
@@ -317,7 +354,7 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
 
   const points = useMemo(() => {
     const out: { id: number; pos: L.LatLngTuple; row: SalesMapPointRow; orgT: string }[] = [];
-    for (const row of rowsFilteredByDriver) {
+    for (const row of rowsForMap) {
       const id = Number(row.IdReal1);
       if (!Number.isFinite(id)) continue;
       const lat = Number(row.Lat);
@@ -328,7 +365,7 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
       out.push({ id, pos: [lat, lon], row, orgT });
     }
     return out;
-  }, [rowsFilteredByDriver]);
+  }, [rowsForMap]);
 
   const orgTColorMap = useMemo(() => buildOrgTColorMap(points.map((p) => p.orgT)), [points]);
 
@@ -349,7 +386,6 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
   }, [points, orgTColorMap, t]);
 
   const latLngs = useMemo(() => points.map((p) => p.pos), [points]);
-  const defaultCenter: L.LatLngTuple = [42.315, 43.3566];
 
   const selectedTotals = useMemo(() => {
     let liters = 0;
@@ -441,9 +477,6 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
   const hasSelection = selected.size > 0;
 
   const renderLegendContent = () => {
-    if (distPlan && distPlan.driverStats.some((s) => s.orderCount > 0)) {
-      return <DriverColorLegend driverStats={distPlan.driverStats.filter((s) => s.orderCount > 0)} />;
-    }
     if (legendItems.length > 0) {
       return (
         <div
@@ -492,6 +525,10 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
         <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
           {t("salesMapDriverFilterNoMatches")}
         </div>
+      ) : rowsForMap.length === 0 && mapFilterDriverId != null ? (
+        <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
+          {t("salesMapVehicleCardNoMatches")}
+        </div>
       ) : points.length === 0 ? (
         <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 text-center text-sm text-foreground">
           {t("customerLocationsNoCoords")}
@@ -500,21 +537,21 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
         <div className="relative z-0 h-[min(640px,72vh)] min-h-[320px] w-full overflow-hidden rounded-2xl border border-border/50 shadow-sm">
           {/* Leaflet map */}
           <MapContainer
-            center={latLngs[0] ?? defaultCenter}
-            zoom={8}
+            center={MAP_DEFAULT_CENTER_GEORGIA}
+            zoom={MAP_DEFAULT_ZOOM_GEORGIA}
             scrollWheelZoom
             className="h-full w-full bg-muted [&_.leaflet-control-attribution]:text-[10px]"
           >
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; Google Maps'
+              url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
             />
             <FitBounds latLngs={latLngs} />
             <SalesMapRectSelect enabled={rectMode} onBounds={handleBbox} />
             {points.map((p) => {
               const distDriverIdx = distOrderDriverMap.get(p.id);
               const hasDistColor = distDriverIdx !== undefined;
-              const hex = hasDistColor ? driverColor(distDriverIdx) : colorForOrgT(orgTColorMap, p.orgT);
+              const hex = colorForOrgT(orgTColorMap, p.orgT);
               const isSel = selected.has(p.id);
               const isDistHovered = distHoveredOrder === p.id;
               const mdzFromRow =
@@ -568,7 +605,7 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
                         </div>
                       )}
                       {distDriverName && (
-                        <div className="text-xs font-medium" style={{ color: hex }}>
+                        <div className="text-xs font-medium text-foreground">
                           {t("distAssignedTo")}: {distDriverName}
                         </div>
                       )}
@@ -791,10 +828,13 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
             setDistPlan(null);
             setDistOrders([]);
             setDistHoveredOrder(null);
+            setMapFilterDriverId(null);
             void loadPoints();
           }}
           highlightedOrderId={distHoveredOrder}
           onHoverOrder={setDistHoveredOrder}
+          mapFilterDriverId={mapFilterDriverId}
+          onMapFilterDriverChange={setMapFilterDriverId}
         />
       )}
 
@@ -856,6 +896,8 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
                 <p className="text-sm text-muted-foreground">
                   {mapDriverFilter === "unassigned" ? t("salesMapUnassignedEmpty") : t("salesMapAssignedEmpty")}
                 </p>
+              ) : rowsForMap.length === 0 && mapFilterDriverId != null ? (
+                <p className="text-sm text-muted-foreground">{t("salesMapVehicleCardNoMatches")}</p>
               ) : linesForTable.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t("salesMapLinesEmpty")}</p>
               ) : (

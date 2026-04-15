@@ -64,9 +64,13 @@ interface UseSpeechRecognitionReturn {
   listening: boolean;
   supported: boolean;
   error: string | null;
+  /** Text produced by a completed recognition session (set once on end). */
+  completedText: string | null;
   start: (lang: VoiceLang) => void;
   stop: () => void;
   clearTranscript: () => void;
+  /** Acknowledge the completedText so it resets to null. */
+  clearCompleted: () => void;
 }
 
 export function useSpeechRecognition(): UseSpeechRecognitionReturn {
@@ -74,11 +78,16 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [supported, setSupported] = useState(false);
+  const [completedText, setCompletedText] = useState<string | null>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const accumulatedRef = useRef("");
 
-  const supported =
-    typeof window !== "undefined" &&
-    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  useEffect(() => {
+    setSupported(
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window,
+    );
+  }, []);
 
   const stop = useCallback(() => {
     recognitionRef.current?.stop();
@@ -90,7 +99,6 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const start = useCallback(
     (lang: VoiceLang) => {
       if (!supported) return;
-      // Stop any ongoing recognition first
       recognitionRef.current?.abort();
 
       const SpeechRecognitionImpl =
@@ -103,11 +111,15 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       recognition.continuous = false;
       recognition.maxAlternatives = 1;
 
+      accumulatedRef.current = "";
+
       recognition.onstart = () => {
         setListening(true);
         setError(null);
         setTranscript("");
         setInterimTranscript("");
+        setCompletedText(null);
+        accumulatedRef.current = "";
       };
 
       recognition.onresult = (event: SpeechRecognitionEventData) => {
@@ -121,7 +133,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
             interim += result[0].transcript;
           }
         }
-        if (final) setTranscript((prev) => prev + final);
+        if (final) {
+          accumulatedRef.current += final;
+          setTranscript(accumulatedRef.current);
+        }
         setInterimTranscript(interim);
       };
 
@@ -134,8 +149,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       };
 
       recognition.onend = () => {
+        const text = accumulatedRef.current.trim();
         setListening(false);
         setInterimTranscript("");
+        if (text) setCompletedText(text);
         recognitionRef.current = null;
       };
 
@@ -150,7 +167,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     setInterimTranscript("");
   }, []);
 
-  // Cleanup on unmount
+  const clearCompleted = useCallback(() => {
+    setCompletedText(null);
+  }, []);
+
   useEffect(() => {
     return () => {
       recognitionRef.current?.abort();
@@ -163,8 +183,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     listening,
     supported,
     error,
+    completedText,
     start,
     stop,
     clearTranscript,
+    clearCompleted,
   };
 }

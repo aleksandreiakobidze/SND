@@ -29,6 +29,8 @@ function getTransport(): nodemailer.Transporter {
     host,
     port,
     secure,
+    /** Required for many providers (e.g. Gmail / Google Workspace on 587). */
+    requireTLS: !secure && port === 587,
     auth: { user, pass },
   });
 }

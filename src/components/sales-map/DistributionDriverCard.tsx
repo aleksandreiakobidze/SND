@@ -38,9 +38,18 @@ interface Props {
   stat: DriverLoadStats;
   color: string;
   onShowOrders?: () => void;
+  /** Clicking the card background filters the map to this driver; toggles off when already selected. */
+  onSelectForMap?: () => void;
+  selected?: boolean;
 }
 
-export function DistributionDriverCard({ stat, color, onShowOrders }: Props) {
+export function DistributionDriverCard({
+  stat,
+  color,
+  onShowOrders,
+  onSelectForMap,
+  selected = false,
+}: Props) {
   const { t } = useLocale();
   const overCapacity =
     (stat.hasLitersLimit && stat.litersPct >= 100) ||
@@ -48,13 +57,27 @@ export function DistributionDriverCard({ stat, color, onShowOrders }: Props) {
     (stat.hasOrdersLimit && stat.ordersPct >= 100);
 
   return (
-    <div className={cn(
-      "group/card relative rounded-2xl border p-4 space-y-3 transition-all duration-200",
-      "backdrop-blur-sm bg-card/90 hover:shadow-lg hover:border-border hover:-translate-y-0.5",
-      overCapacity
-        ? "border-red-500/40 bg-red-500/[0.03]"
-        : "border-border/40",
-    )}>
+    <div
+      role={onSelectForMap ? "button" : undefined}
+      tabIndex={onSelectForMap ? 0 : undefined}
+      className={cn(
+        "group/card relative rounded-2xl border p-4 space-y-3 transition-all duration-200",
+        "backdrop-blur-sm bg-card/90 hover:shadow-lg hover:border-border hover:-translate-y-0.5",
+        onSelectForMap && "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        selected && "ring-2 ring-primary border-primary/50 shadow-md",
+        overCapacity
+          ? "border-red-500/40 bg-red-500/[0.03]"
+          : "border-border/40",
+      )}
+      onClick={onSelectForMap}
+      onKeyDown={(e) => {
+        if (!onSelectForMap) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelectForMap();
+        }
+      }}
+    >
       {/* Top: driver info + order count + amount */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -96,7 +119,10 @@ export function DistributionDriverCard({ stat, color, onShowOrders }: Props) {
           "hover:bg-primary/10 hover:text-primary",
           "group-hover/card:bg-muted/40",
         )}
-        onClick={onShowOrders}
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowOrders?.();
+        }}
       >
         {t("distViewOrders").replace("{n}", String(stat.orderCount))}
         <ArrowRight className="h-3 w-3 transition-transform group-hover/card:translate-x-0.5" />

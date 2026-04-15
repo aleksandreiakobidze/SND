@@ -6,19 +6,15 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useLocale } from "@/lib/locale-context";
 import { buildOrgTColorMap, colorForOrgT, normalizeOrgTLabel } from "@/lib/map-object-type-colors";
+import { MAP_DEFAULT_CENTER_GEORGIA, MAP_DEFAULT_ZOOM_GEORGIA } from "@/lib/map-defaults";
+import { fitMapToPoints } from "@/lib/map-viewport";
 
 export type CustomerLocationRow = Record<string, unknown>;
 
 function FitBounds({ latLngs }: { latLngs: L.LatLngTuple[] }) {
   const map = useMap();
   useEffect(() => {
-    if (latLngs.length === 0) return;
-    if (latLngs.length === 1) {
-      map.setView(latLngs[0], 11);
-      return;
-    }
-    const b = L.latLngBounds(latLngs);
-    map.fitBounds(b, { padding: [48, 48], maxZoom: 14 });
+    fitMapToPoints(map, latLngs);
   }, [map, latLngs]);
   return null;
 }
@@ -67,7 +63,6 @@ export function CustomerLocationsMap({ rows, formatCurrency, emptyMessage }: Pro
   }, [points, orgTColorMap, t]);
 
   const latLngs = useMemo(() => points.map((p) => p.pos), [points]);
-  const defaultCenter: L.LatLngTuple = [42.315, 43.3566];
 
   if (points.length === 0) {
     return (
@@ -81,15 +76,15 @@ export function CustomerLocationsMap({ rows, formatCurrency, emptyMessage }: Pro
     <div className="space-y-2">
       <div className="relative z-0 h-[min(420px,60vh)] min-h-[280px] w-full overflow-hidden rounded-lg border">
         <MapContainer
-          center={latLngs[0] ?? defaultCenter}
-          zoom={8}
+          center={MAP_DEFAULT_CENTER_GEORGIA}
+          zoom={MAP_DEFAULT_ZOOM_GEORGIA}
           scrollWheelZoom
           className="h-full w-full [&_.leaflet-control-attribution]:text-[10px]"
           style={{ background: "hsl(var(--muted))" }}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; Google Maps'
+            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
           />
           <FitBounds latLngs={latLngs} />
           {points.map((p, i) => {

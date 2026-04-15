@@ -32,6 +32,13 @@ describe("parseEmailDeliveryIntent", () => {
     expect(p.recipientEmail).toBeNull();
   });
 
+  it("Georgian verb-first: send to my email (გამომიგზავნე ჩემს მეილზე)", () => {
+    const p = parseEmailDeliveryIntent("გამომიგზავნე ჩემს მეილზე.");
+    expect(p.useSignedInEmail).toBe(true);
+    expect(p.hasEmailIntent).toBe(true);
+    expect(p.recipientEmail).toBeNull();
+  });
+
   it("does not treat random chat as email intent", () => {
     expect(parseEmailDeliveryIntent("show sales by region").hasEmailIntent).toBe(false);
   });

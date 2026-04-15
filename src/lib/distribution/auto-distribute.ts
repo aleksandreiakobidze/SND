@@ -41,8 +41,10 @@ function effectiveMax(driver: DriverCapacity) {
 function canFit(bucket: DriverBucket, order: OrderForDistribution): boolean {
   const max = effectiveMax(bucket.driver);
   if (bucket.orders.length >= max.orders) return false;
-  if (bucket.totalLiters + order.liters > max.liters * 1.05) return false;
-  if (bucket.totalKg + order.weightKg > max.kg * 1.05) return false;
+  if (bucket.totalLiters + order.liters > max.liters) return false;
+  if (bucket.totalKg + order.weightKg > max.kg) return false;
+  const regions = bucket.driver.allowedRegions;
+  if (regions.length > 0 && !regions.includes(order.reg)) return false;
   return true;
 }
 
@@ -100,11 +102,13 @@ export function autoDistribute(
     }
   }
 
-  // Phase 2: Assign remaining orders to nearest driver with capacity
+  // Phase 2: Assign remaining orders to nearest eligible driver.
+  // Primary factor: geographic distance to driver's cluster centroid.
+  // Secondary tiebreaker: capacity utilisation (prefer under-loaded drivers).
   while (remaining.length > 0) {
     let bestOrderIdx = -1;
     let bestBucketIdx = -1;
-    let bestDist = Infinity;
+    let bestScore = Infinity;
 
     for (let oi = 0; oi < remaining.length; oi++) {
       const order = remaining[oi];
@@ -116,13 +120,15 @@ export function autoDistribute(
             : { lat: order.lat, lon: order.lon };
         const dist = haversineKm(order.lat, order.lon, c.lat, c.lon);
 
-        // Prefer under-loaded drivers (capacity-weighted distance)
         const max = effectiveMax(buckets[bi].driver);
-        const loadFactor = buckets[bi].orders.length / max.orders;
-        const weightedDist = dist * (1 + loadFactor * 0.5);
+        const litPct = max.liters > 0 ? buckets[bi].totalLiters / max.liters : 0;
+        const kgPct = max.kg > 0 ? buckets[bi].totalKg / max.kg : 0;
+        const ordPct = max.orders > 0 ? buckets[bi].orders.length / max.orders : 0;
+        const loadFactor = Math.max(litPct, kgPct, ordPct);
+        const score = dist * (1 + loadFactor * 0.5);
 
-        if (weightedDist < bestDist) {
-          bestDist = weightedDist;
+        if (score < bestScore) {
+          bestScore = score;
           bestOrderIdx = oi;
           bestBucketIdx = bi;
         }

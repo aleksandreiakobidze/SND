@@ -64,6 +64,11 @@ const MY_EMAIL_PATTERNS: RegExp[] = [
   /\b(?:send|email|mail)\s+(?:this|the\s+result|the\s+report)?\s*to\s+my\s+email\b/i,
   /\bto\s+my\s+email\b/i,
   /ჩემს\s+მეილზე\s+გამომიგზავნე/i,
+  /** Verb-first (common in Georgian): "send to my email" */
+  /გამომიგზავნე\s+ჩემს\s+მეილზე/i,
+  /გამომიგზავნე\s+ჩემ\s+მეილზე/i,
+  /გააგზავნე\s+ჩემს\s+მეილზე/i,
+  /მომიგზავნე\s+ჩემს\s+მეილზე/i,
   // English: "e mail" (with space/hyphen), "send me ... email", "on my email"
   /\bto\s+my\s+e[\s-]?mail\b/i,
   /\bsend\s+(?:it\s+)?(?:to\s+)?me\b.*\be[\s-]?mail\b/i,

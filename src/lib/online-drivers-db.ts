@@ -5,6 +5,8 @@ import {
   driverTableIdSql,
   driverTableNameSql,
 } from "@/lib/driver-table-env";
+import { rvaSql } from "@/lib/realview-columns";
+import { VIEW_NAME } from "@/lib/schema";
 
 export type DriverRow = {
   id: number;
@@ -153,6 +155,86 @@ export async function updateDriverCapacity(
   );
   return (result.rowsAffected[0] ?? 0) > 0;
 }
+
+/* ── Driver-Region permissions (migration 015) ─────────────────── */
+
+const REGION_TABLE = "dbo.SndApp_DriverRegion";
+
+export async function getDriverRegions(driverId: number): Promise<string[]> {
+  try {
+    const pool = await getPool();
+    const r = await pool
+      .request()
+      .input("id", sql.Int, driverId)
+      .query<{ RegionCode: string }>(
+        `SELECT RegionCode FROM ${REGION_TABLE} WHERE DriverId = @id ORDER BY RegionCode`,
+      );
+    return (r.recordset ?? []).map((row) => row.RegionCode);
+  } catch {
+    return [];
+  }
+}
+
+export async function getAllDriverRegions(): Promise<Map<number, string[]>> {
+  const m = new Map<number, string[]>();
+  try {
+    const pool = await getPool();
+    const r = await pool.request().query<{ DriverId: number; RegionCode: string }>(
+      `SELECT DriverId, RegionCode FROM ${REGION_TABLE} ORDER BY DriverId, RegionCode`,
+    );
+    for (const row of r.recordset ?? []) {
+      const id = Number(row.DriverId);
+      const list = m.get(id) ?? [];
+      list.push(row.RegionCode);
+      m.set(id, list);
+    }
+  } catch {
+    // Table might not exist yet — return empty map (unrestricted)
+  }
+  return m;
+}
+
+export async function setDriverRegions(
+  driverId: number,
+  regions: string[],
+): Promise<void> {
+  const unique = [...new Set(regions.map((r) => r.trim()).filter(Boolean))];
+  const pool = await getPool();
+  const tx = pool.transaction();
+  await tx.begin();
+  try {
+    await tx
+      .request()
+      .input("id", sql.Int, driverId)
+      .query(`DELETE FROM ${REGION_TABLE} WHERE DriverId = @id`);
+    for (const code of unique) {
+      await tx
+        .request()
+        .input("id", sql.Int, driverId)
+        .input("code", sql.NVarChar(100), code)
+        .query(`INSERT INTO ${REGION_TABLE} (DriverId, RegionCode) VALUES (@id, @code)`);
+    }
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback().catch(() => undefined);
+    throw err;
+  }
+}
+
+export async function getAvailableRegions(): Promise<string[]> {
+  try {
+    const pool = await getPool();
+    const reg = rvaSql("REG");
+    const r = await pool.request().query<{ Reg: string }>(
+      `SELECT DISTINCT ${reg} AS Reg FROM ${VIEW_NAME} WHERE ${reg} IS NOT NULL AND ${reg} <> '' ORDER BY Reg`,
+    );
+    return (r.recordset ?? []).map((row) => String(row.Reg).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/* ── Helpers ───────────────────────────────────────────────────── */
 
 function mapCapacityRow(row: Record<string, unknown>): DriverWithCapacity {
   const id = Number(row.id);

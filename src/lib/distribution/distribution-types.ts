@@ -6,6 +6,7 @@ export interface DriverCapacity {
   maxOrders: number;
   vehiclePlate: string | null;
   vehicleType: string | null;
+  allowedRegions: string[];
 }
 
 export interface OrderForDistribution {

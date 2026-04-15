@@ -106,6 +106,9 @@ export async function POST(req: NextRequest) {
   if (body.useSignedInEmail) {
     recipient = auth.ctx.user.email;
   }
+  if (!recipient && auth.ctx.user.email?.trim()) {
+    recipient = auth.ctx.user.email.trim();
+  }
   if (!recipient) {
     return NextResponse.json(
       { error: "RECIPIENT_REQUIRED", message: "Recipient email is required." },

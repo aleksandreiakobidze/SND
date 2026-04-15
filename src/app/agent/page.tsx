@@ -250,7 +250,12 @@ function AgentPageContent() {
         }
       }
 
-      if (delivery.useSignedInEmail && !user?.email) {
+      // Default to signed-in account email when user asked to email but gave no address
+      if (!recipient && user?.email?.trim()) {
+        recipient = user.email.trim();
+      }
+
+      if (!recipient) {
         const err: AgentMessage = {
           id: `assistant-${Date.now()}`,
           role: "assistant",
@@ -259,18 +264,6 @@ function AgentPageContent() {
           timestamp: new Date(),
         };
         setAgentMessages((prev) => [...prev, userMessage, err]);
-        return;
-      }
-
-      if (!recipient) {
-        const ask: AgentMessage = {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: t("agentEmailAskAddress"),
-          narrative: t("agentEmailAskAddress"),
-          timestamp: new Date(),
-        };
-        setAgentMessages((prev) => [...prev, userMessage, ask]);
         return;
       }
 
@@ -360,7 +353,9 @@ function AgentPageContent() {
                       : errCode === "MATRIX_EXPORT_UNAVAILABLE"
                         ? t("agentEmailErrorMatrixExport")
                         : errCode === "EMAIL_SEND_FAILED"
-                          ? t("agentEmailErrorSend")
+                          ? typeof json.message === "string" && json.message.trim()
+                            ? `${t("agentEmailErrorSend")} (${json.message})`
+                            : t("agentEmailErrorSend")
                           : errCode === "INVALID_EMAIL"
                             ? t("agentEmailErrorInvalidRecipient")
                             : errCode === "RECIPIENT_REQUIRED"

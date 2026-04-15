@@ -62,12 +62,16 @@ interface Props {
   onApplied?: () => void;
   highlightedOrderId?: number | null;
   onHoverOrder?: (orderId: number | null) => void;
+  mapFilterDriverId?: number | null;
+  onMapFilterDriverChange?: (driverId: number | null) => void;
 }
 
 export function DistributionPanel({
   filtersKey,
   onPlanReady,
   onApplied,
+  mapFilterDriverId = null,
+  onMapFilterDriverChange,
 }: Props) {
   const { t } = useLocale();
   const [plan, setPlan] = useState<DistributionPlan | null>(null);
@@ -447,6 +451,12 @@ export function DistributionPanel({
                   key={stat.driverId}
                   stat={stat}
                   color={driverColor(idx)}
+                  selected={mapFilterDriverId === stat.driverId}
+                  onSelectForMap={() => {
+                    onMapFilterDriverChange?.(
+                      mapFilterDriverId === stat.driverId ? null : stat.driverId,
+                    );
+                  }}
                   onShowOrders={() => setOpenSheetDriverIdx(idx)}
                 />
               ))}
