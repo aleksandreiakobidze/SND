@@ -3,6 +3,31 @@
 import { useState, useEffect, useCallback } from "react";
 import { todayStr, type FilterParams, type FilterField } from "./filters";
 
+/**
+ * Variant of useFilters for the Sales Map.
+ * - Always defaults to today (single day)
+ * - Never allows dates in the past
+ */
+export function useSalesMapFilters() {
+  const [filters, setFilters] = useState<FilterParams>({});
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const today = todayStr();
+    setFilters({ dateFrom: today, dateTo: today });
+    setReady(true);
+  }, []);
+
+  const handleFiltersChange = useCallback((f: FilterParams) => {
+    const today = todayStr();
+    const safeFrom = f.dateFrom && f.dateFrom < today ? today : f.dateFrom;
+    const safeTo = f.dateTo && f.dateTo < today ? today : f.dateTo;
+    setFilters({ ...f, dateFrom: safeFrom, dateTo: safeTo });
+  }, []);
+
+  return { filters, ready, handleFiltersChange };
+}
+
 export interface CrossFilter {
   field: FilterField;
   value: string;

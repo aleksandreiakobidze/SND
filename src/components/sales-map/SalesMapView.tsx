@@ -14,9 +14,20 @@ import { DriverSearchSelect } from "@/components/sales-map/DriverSearchSelect";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { BoxSelect, FileSpreadsheet, RefreshCw } from "lucide-react";
+import {
+  BoxSelect,
+  ChevronDown,
+  ChevronUp,
+  Eraser,
+  FileSpreadsheet,
+  RefreshCw,
+  UserCheck,
+} from "lucide-react";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DistributionPanel, driverColor } from "@/components/sales-map/DistributionPanel";
+import { DriverColorLegend } from "@/components/sales-map/DriverColorLegend";
+import type { DistributionPlan, OrderForDistribution } from "@/lib/distribution/distribution-types";
 import {
   Table,
   TableBody,
@@ -30,6 +41,8 @@ export type SalesMapPointRow = Record<string, unknown>;
 
 const LINES_TABLE_MAX = 200;
 
+const GLASS = "bg-background/80 backdrop-blur-xl border border-border/40 shadow-lg dark:bg-background/70";
+
 function formatLineQty(v: unknown): string {
   if (v == null) return "—";
   const n = Number(v);
@@ -38,7 +51,6 @@ function formatLineQty(v: unknown): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
-/** ERP: Micodeba 0 = assigned, 1 = unassigned. If null/legacy, fall back to IdMdz/Mdz. */
 function rowHasAssignedDriver(row: SalesMapPointRow): boolean {
   const mic = row.Micodeba;
   if (mic != null && mic !== "") {
@@ -70,7 +82,6 @@ function FitBounds({ latLngs }: { latLngs: L.LatLngTuple[] }) {
 }
 
 type BboxMode = "add" | "replace";
-
 type MapDriverFilter = "all" | "assigned" | "unassigned";
 
 type Props = {
@@ -98,6 +109,73 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
   const [assigning, setAssigning] = useState(false);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
   const [exportingLinesExcel, setExportingLinesExcel] = useState(false);
+  const [linesOpen, setLinesOpen] = useState(false);
+
+  const [distPlan, setDistPlan] = useState<DistributionPlan | null>(null);
+  const [distOrders, setDistOrders] = useState<OrderForDistribution[]>([]);
+  const [distHoveredOrder, setDistHoveredOrder] = useState<number | null>(null);
+
+  const distOrderDriverMap = useMemo(() => {
+    if (!distPlan) return new Map<number, number>();
+    const m = new Map<number, number>();
+    for (let i = 0; i < distPlan.driverStats.length; i++) {
+      const stat = distPlan.driverStats[i];
+      for (const oid of stat.orderIds) {
+        m.set(oid, i);
+      }
+    }
+    return m;
+  }, [distPlan]);
+
+  const moveOrderBetweenDrivers = useCallback(
+    (orderId: number, targetDriverIdx: number) => {
+      if (!distPlan) return;
+      const order = distOrders.find((o) => o.idReal1 === orderId);
+      if (!order) return;
+      const updated = distPlan.driverStats.map((s, idx) => {
+        if (s.orderIds.includes(orderId)) {
+          const newIds = s.orderIds.filter((id) => id !== orderId);
+          const liters = s.totalLiters - order.liters;
+          const kg = s.totalKg - order.weightKg;
+          return {
+            ...s,
+            orderIds: newIds,
+            orderCount: newIds.length,
+            totalLiters: Math.max(0, liters),
+            totalKg: Math.max(0, kg),
+            totalAmount: Math.max(0, s.totalAmount - order.amount),
+            litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
+            kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+            ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
+          };
+        }
+        if (idx === targetDriverIdx) {
+          const newIds = [...s.orderIds, orderId];
+          const liters = s.totalLiters + order.liters;
+          const kg = s.totalKg + order.weightKg;
+          return {
+            ...s,
+            orderIds: newIds,
+            orderCount: newIds.length,
+            totalLiters: liters,
+            totalKg: kg,
+            totalAmount: s.totalAmount + order.amount,
+            litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
+            kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+            ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
+          };
+        }
+        return s;
+      });
+      const newPlan: DistributionPlan = {
+        ...distPlan,
+        driverStats: updated,
+        unassigned: distPlan.unassigned.filter((id) => id !== orderId),
+      };
+      setDistPlan(newPlan);
+    },
+    [distPlan, distOrders],
+  );
 
   const loadPoints = useCallback(async () => {
     if (!filtersReady) return;
@@ -354,359 +432,474 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-5 py-4 text-sm text-destructive">
         {t("error")}: {error}
       </div>
     );
   }
 
+  const hasSelection = selected.size > 0;
+
+  const renderLegendContent = () => {
+    if (distPlan && distPlan.driverStats.some((s) => s.orderCount > 0)) {
+      return <DriverColorLegend driverStats={distPlan.driverStats.filter((s) => s.orderCount > 0)} />;
+    }
+    if (legendItems.length > 0) {
+      return (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-foreground"
+          role="list"
+          aria-label={t("mapObjectTypeLegend")}
+        >
+          <span className="font-medium text-muted-foreground">{t("mapObjectTypeLegend")}:</span>
+          {legendItems.map((item) => (
+            <span key={item.label} className="inline-flex items-center gap-1" role="listitem">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full border border-black/10"
+                style={{ backgroundColor: item.color }}
+              />
+              <span>{item.label}</span>
+            </span>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="space-y-4">
-      <p className="text-sm leading-relaxed text-muted-foreground">{t("salesMapBboxHint")}</p>
-
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant={rectMode ? "default" : "outline"}
-            size="sm"
-            className="gap-2"
-            onClick={() => setRectMode((v) => !v)}
-          >
-            <BoxSelect className="h-4 w-4" />
-            {rectMode ? t("salesMapRectModeOn") : t("salesMapRectModeOff")}
-          </Button>
-          <span className="text-xs text-muted-foreground">{t("salesMapBboxMergeLabel")}</span>
-          <div className="flex rounded-lg border border-border p-0.5 text-xs">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2 py-1 transition-colors",
-                bboxMode === "add" ? "bg-primary text-primary-foreground" : "hover:bg-muted",
-              )}
-              onClick={() => setBboxMode("add")}
-            >
-              {t("salesMapBboxAdd")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2 py-1 transition-colors",
-                bboxMode === "replace" ? "bg-primary text-primary-foreground" : "hover:bg-muted",
-              )}
-              onClick={() => setBboxMode("replace")}
-            >
-              {t("salesMapBboxReplace")}
-            </button>
-          </div>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
-            {t("salesMapClearSelection")}
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadPoints()} disabled={loading || !filtersReady}>
-            <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-            {t("refresh")}
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">{t("salesMapDriverFilterLabel")}</span>
-          <div className="flex flex-wrap rounded-lg border border-border p-0.5 text-xs">
-            {(
-              [
-                ["all", "salesMapDriverFilterAll"],
-                ["assigned", "salesMapDriverFilterAssigned"],
-                ["unassigned", "salesMapDriverFilterUnassigned"],
-              ] as const
-            ).map(([key, labelKey]) => (
-              <button
-                key={key}
-                type="button"
-                className={cn(
-                  "rounded-md px-2 py-1 transition-colors",
-                  mapDriverFilter === key ? "bg-primary text-primary-foreground" : "hover:bg-muted",
-                )}
-                onClick={() => setMapDriverFilter(key)}
-              >
-                {t(labelKey)}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {driversWarning && (
-        <div role="status" className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+        <div role="status" className="rounded-2xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
           {driversWarning}
         </div>
       )}
 
-      <div className="surface-elevated grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("salesMapSelectionSummary")}</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">
-            {selectedTotals.count}{" "}
-            <span className="text-base font-normal text-muted-foreground">{t("salesMapSelectedOrders")}</span>
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("amount")}</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">
-            ₾
-            {selectedTotals.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("onlineMapTotalLiters")}</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatLiters(selectedTotals.liters)}</p>
-        </div>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("salesMapSelectedWeight")}</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">
-            {selectedTotals.weight.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
-          </p>
-        </div>
-      </div>
-
-      {canAssignSalesDriver ? (
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[220px] space-y-2">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="sales-map-driver">
-              {t("drivers")}
-            </label>
-            <DriverSearchSelect
-              id="sales-map-driver"
-              drivers={drivers}
-              value={driverId}
-              onValueChange={setDriverId}
-              disabled={loading || assigning}
-              placeholder={t("salesMapDriverPlaceholder")}
-              searchPlaceholder={t("salesMapDriverSearch")}
-              noResultsLabel={t("salesMapDriverNoResults")}
-              className="w-full max-w-md"
-            />
-          </div>
-          <Button
-            type="button"
-            disabled={assigning || selected.size === 0 || !driverId || loading}
-            onClick={() => void assignDriver()}
-          >
-            {assigning ? t("salesMapAssigning") : t("salesMapAssignDriver")}
-            {selected.size > 0 ? ` (${selected.size})` : ""}
-          </Button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">{t("salesMapPermHint")}</p>
-      )}
-
       {assignMsg && (
-        <pre className="rounded-xl border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap text-foreground">{assignMsg}</pre>
+        <div className="rounded-2xl border border-border/50 bg-muted/40 px-4 py-3 text-sm whitespace-pre-wrap text-foreground">
+          {assignMsg}
+        </div>
       )}
 
+      {/* === MAP AREA === */}
       {loading ? (
-        <Skeleton className="h-[min(480px,65vh)] min-h-[300px] w-full rounded-2xl" />
+        <Skeleton className="h-[min(640px,72vh)] min-h-[320px] w-full rounded-2xl" />
       ) : rows.length === 0 ? (
-        <div className="flex h-[min(480px,65vh)] min-h-[300px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
+        <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
           {t("salesMapNoData")}
         </div>
       ) : rowsFilteredByDriver.length === 0 ? (
-        <div className="flex h-[min(480px,65vh)] min-h-[300px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
+        <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-border/60 bg-muted/30 px-4 text-center text-sm text-muted-foreground">
           {t("salesMapDriverFilterNoMatches")}
         </div>
       ) : points.length === 0 ? (
-        <div className="flex h-[min(480px,65vh)] min-h-[300px] items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 text-center text-sm text-foreground">
+        <div className="flex h-[min(640px,72vh)] min-h-[320px] items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 text-center text-sm text-foreground">
           {t("customerLocationsNoCoords")}
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="relative z-0 h-[min(480px,65vh)] min-h-[300px] w-full overflow-hidden rounded-2xl border border-border/60">
-            <MapContainer
-              center={latLngs[0] ?? defaultCenter}
-              zoom={8}
-              scrollWheelZoom
-              className="h-full w-full bg-muted [&_.leaflet-control-attribution]:text-[10px]"
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <FitBounds latLngs={latLngs} />
-              <SalesMapRectSelect enabled={rectMode} onBounds={handleBbox} />
-              {points.map((p) => {
-                const hex = colorForOrgT(orgTColorMap, p.orgT);
-                const isSel = selected.has(p.id);
-                const mdzFromRow =
-                  p.row.Mdz != null && String(p.row.Mdz).trim() !== "" ? String(p.row.Mdz).trim() : null;
-                const idMdz = p.row.IdMdz;
-                const mdzNum = idMdz != null && idMdz !== "" ? Number(idMdz) : NaN;
-                const mdzLabelFromId = Number.isFinite(mdzNum)
-                  ? driverNameById.get(mdzNum) ?? `#${mdzNum}`
-                  : null;
-                const mdzLabel = mdzFromRow ?? mdzLabelFromId;
-                return (
-                  <CircleMarker
-                    key={p.id}
-                    center={p.pos}
-                    radius={isSel ? 11 : 7}
-                    pathOptions={{
-                      color: hex,
-                      fillColor: hex,
-                      fillOpacity: isSel ? 0.55 : 0.38,
-                      weight: isSel ? 3 : 2,
-                    }}
-                    eventHandlers={{
-                      click: () => toggleOne(p.id),
-                    }}
-                  >
-                    <Popup>
-                      <div className="min-w-[180px] space-y-1 text-sm">
-                        <div className="font-semibold">{String(p.row.Org ?? "")}</div>
-                        <div className="text-muted-foreground">
-                          {p.orgT ? (
-                            <span>
-                              {t("customerCategory")}: {p.orgT}
-                            </span>
-                          ) : (
-                            <span>{t("mapUnknownOrgT")}</span>
-                          )}
-                        </div>
-                        <div className="text-muted-foreground">{String(p.row.Reg ?? "")}</div>
-                        <div>
-                          {formatCurrency(Number(p.row.OrderTotal ?? 0))} ·{" "}
-                          {p.row.OrderLiters != null && Number(p.row.OrderLiters) > 0
-                            ? formatLiters(Number(p.row.OrderLiters))
-                            : "—"}
-                        </div>
-                        {mdzLabel && (
-                          <div className="text-xs text-muted-foreground">
-                            {t("drivers")}: {mdzLabel}
-                          </div>
+        <div className="relative z-0 h-[min(640px,72vh)] min-h-[320px] w-full overflow-hidden rounded-2xl border border-border/50 shadow-sm">
+          {/* Leaflet map */}
+          <MapContainer
+            center={latLngs[0] ?? defaultCenter}
+            zoom={8}
+            scrollWheelZoom
+            className="h-full w-full bg-muted [&_.leaflet-control-attribution]:text-[10px]"
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <FitBounds latLngs={latLngs} />
+            <SalesMapRectSelect enabled={rectMode} onBounds={handleBbox} />
+            {points.map((p) => {
+              const distDriverIdx = distOrderDriverMap.get(p.id);
+              const hasDistColor = distDriverIdx !== undefined;
+              const hex = hasDistColor ? driverColor(distDriverIdx) : colorForOrgT(orgTColorMap, p.orgT);
+              const isSel = selected.has(p.id);
+              const isDistHovered = distHoveredOrder === p.id;
+              const mdzFromRow =
+                p.row.Mdz != null && String(p.row.Mdz).trim() !== "" ? String(p.row.Mdz).trim() : null;
+              const idMdz = p.row.IdMdz;
+              const mdzNum = idMdz != null && idMdz !== "" ? Number(idMdz) : NaN;
+              const mdzLabelFromId = Number.isFinite(mdzNum)
+                ? driverNameById.get(mdzNum) ?? `#${mdzNum}`
+                : null;
+              const mdzLabel = mdzFromRow ?? mdzLabelFromId;
+              const distDriverName = hasDistColor
+                ? distPlan?.driverStats[distDriverIdx]?.driverName
+                : null;
+              return (
+                <CircleMarker
+                  key={p.id}
+                  center={p.pos}
+                  radius={isDistHovered ? 14 : isSel ? 11 : hasDistColor ? 9 : 7}
+                  pathOptions={{
+                    color: hex,
+                    fillColor: hex,
+                    fillOpacity: isDistHovered ? 0.8 : isSel ? 0.55 : hasDistColor ? 0.6 : 0.38,
+                    weight: isDistHovered ? 4 : isSel ? 3 : 2,
+                  }}
+                  eventHandlers={{
+                    click: () => toggleOne(p.id),
+                  }}
+                >
+                  <Popup>
+                    <div className="min-w-[180px] space-y-1 text-sm">
+                      <div className="font-semibold">{String(p.row.Org ?? "")}</div>
+                      <div className="text-muted-foreground">
+                        {p.orgT ? (
+                          <span>
+                            {t("customerCategory")}: {p.orgT}
+                          </span>
+                        ) : (
+                          <span>{t("mapUnknownOrgT")}</span>
                         )}
-                        <div className="text-xs text-muted-foreground">IdReal1: {p.id}</div>
-                        <button
-                          type="button"
-                          className={cn(
-                            "mt-2 w-full rounded-lg border px-2 py-1 text-xs font-medium transition-colors",
-                            isSel ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleOne(p.id);
+                      </div>
+                      <div className="text-muted-foreground">{String(p.row.Reg ?? "")}</div>
+                      <div>
+                        {formatCurrency(Number(p.row.OrderTotal ?? 0))} ·{" "}
+                        {p.row.OrderLiters != null && Number(p.row.OrderLiters) > 0
+                          ? formatLiters(Number(p.row.OrderLiters))
+                          : "—"}
+                      </div>
+                      {mdzLabel && (
+                        <div className="text-xs text-muted-foreground">
+                          {t("drivers")}: {mdzLabel}
+                        </div>
+                      )}
+                      {distDriverName && (
+                        <div className="text-xs font-medium" style={{ color: hex }}>
+                          {t("distAssignedTo")}: {distDriverName}
+                        </div>
+                      )}
+                      {distPlan && distPlan.driverStats.length > 1 && (
+                        <select
+                          className="mt-1 w-full rounded border border-border bg-background px-1 py-0.5 text-[10px]"
+                          value={distDriverIdx !== undefined ? String(distDriverIdx) : ""}
+                          onChange={(e) => {
+                            const targetIdx = parseInt(e.target.value, 10);
+                            if (!Number.isFinite(targetIdx)) return;
+                            moveOrderBetweenDrivers(p.id, targetIdx);
                           }}
                         >
-                          {isSel ? t("onlineMapDeselect") : t("onlineMapSelect")}
-                        </button>
-                      </div>
-                    </Popup>
-                  </CircleMarker>
-                );
-              })}
-            </MapContainer>
-          </div>
-          {legendItems.length > 0 && (
-            <div
-              className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs text-foreground"
-              role="list"
-              aria-label={t("mapObjectTypeLegend")}
-            >
-              <span className="font-medium text-muted-foreground">{t("mapObjectTypeLegend")}:</span>
-              {legendItems.map((item) => (
-                <span key={item.label} className="inline-flex items-center gap-1.5" role="listitem">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full border border-black/10"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span>{item.label}</span>
-                </span>
+                          <option value="" disabled>{t("distMoveTo")}</option>
+                          {distPlan.driverStats.map((ds, di) => (
+                            <option key={ds.driverId} value={String(di)} disabled={di === distDriverIdx}>
+                              {ds.driverName} ({ds.orderCount})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="text-xs text-muted-foreground">IdReal1: {p.id}</div>
+                      <button
+                        type="button"
+                        className={cn(
+                          "mt-2 w-full rounded-lg border px-2 py-1 text-xs font-medium transition-colors",
+                          isSel ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleOne(p.id);
+                        }}
+                      >
+                        {isSel ? t("onlineMapDeselect") : t("onlineMapSelect")}
+                      </button>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              );
+            })}
+          </MapContainer>
+
+          {/* ===== FLOATING TOOLBAR (top-left) ===== */}
+          <div className={cn("absolute top-3 left-3 z-[500] flex flex-col gap-2 rounded-xl p-2", GLASS)}>
+            {/* Row 1: Selection tools */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                title={rectMode ? t("salesMapRectModeOn") : t("salesMapRectModeOff")}
+                className={cn(
+                  "rounded-lg p-1.5 transition-all",
+                  rectMode
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                )}
+                onClick={() => setRectMode((v) => !v)}
+              >
+                <BoxSelect className="h-4 w-4" />
+              </button>
+
+              <div className="h-4 w-px bg-border/60" />
+
+              <div className="flex rounded-lg bg-muted/40 p-0.5 gap-0.5">
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[10px] font-medium transition-all",
+                    bboxMode === "add"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setBboxMode("add")}
+                >
+                  {t("salesMapBboxAdd")}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[10px] font-medium transition-all",
+                    bboxMode === "replace"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setBboxMode("replace")}
+                >
+                  {t("salesMapBboxReplace")}
+                </button>
+              </div>
+
+              <div className="h-4 w-px bg-border/60" />
+
+              <button
+                type="button"
+                title={t("salesMapClearSelection")}
+                disabled={!hasSelection}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all disabled:opacity-30"
+                onClick={() => setSelected(new Set())}
+              >
+                <Eraser className="h-4 w-4" />
+              </button>
+
+              <button
+                type="button"
+                title={t("refresh")}
+                disabled={loading || !filtersReady}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all disabled:opacity-30"
+                onClick={() => void loadPoints()}
+              >
+                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              </button>
+            </div>
+
+            {/* Row 2: Driver filter segmented control */}
+            <div className="flex rounded-lg bg-muted/40 p-0.5 gap-0.5">
+              {(
+                [
+                  ["all", "salesMapDriverFilterAll"],
+                  ["assigned", "salesMapDriverFilterAssigned"],
+                  ["unassigned", "salesMapDriverFilterUnassigned"],
+                ] as const
+              ).map(([key, labelKey]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded-md px-2 py-1 text-[10px] font-medium transition-all",
+                    mapDriverFilter === key
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setMapDriverFilter(key)}
+                >
+                  {t(labelKey)}
+                </button>
               ))}
+            </div>
+
+            {/* Row 3: Driver assignment — visible when there's a selection */}
+            {canAssignSalesDriver && hasSelection && (
+              <div className="flex items-center gap-1.5 pt-0.5 border-t border-border/30">
+                <DriverSearchSelect
+                  id="sales-map-driver"
+                  drivers={drivers}
+                  value={driverId}
+                  onValueChange={setDriverId}
+                  disabled={loading || assigning}
+                  placeholder={t("salesMapDriverPlaceholder")}
+                  searchPlaceholder={t("salesMapDriverSearch")}
+                  noResultsLabel={t("salesMapDriverNoResults")}
+                  className="w-[160px] text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={assigning || !driverId || loading}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all",
+                    "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+                    "disabled:opacity-40 disabled:cursor-not-allowed",
+                  )}
+                  onClick={() => void assignDriver()}
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  {assigning ? t("salesMapAssigning") : `${t("salesMapAssignDriver")} (${selected.size})`}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ===== FLOATING STATS (top-right) — only when selection > 0 ===== */}
+          {hasSelection && (
+            <div
+              className={cn(
+                "absolute top-3 right-3 z-[500] rounded-xl px-3 py-2 animate-in fade-in slide-in-from-right-4 duration-200",
+                GLASS,
+              )}
+            >
+              <div className="flex items-center gap-3 divide-x divide-border/40">
+                <div className="text-center">
+                  <p className="text-lg font-bold tabular-nums leading-none">{selectedTotals.count}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">{t("salesMapSelectedOrders")}</p>
+                </div>
+                <div className="pl-3 text-center">
+                  <p className="text-sm font-semibold tabular-nums leading-none">
+                    ₾{selectedTotals.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">{t("amount")}</p>
+                </div>
+                <div className="pl-3 text-center">
+                  <p className="text-sm font-semibold tabular-nums leading-none">{formatLiters(selectedTotals.liters)}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">{t("onlineMapTotalLiters")}</p>
+                </div>
+                <div className="pl-3 text-center">
+                  <p className="text-sm font-semibold tabular-nums leading-none">
+                    {selectedTotals.weight.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">{t("salesMapSelectedWeight")}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== FLOATING LEGEND (bottom overlay) ===== */}
+          {renderLegendContent() && (
+            <div className={cn("absolute bottom-3 left-3 right-3 z-[500] rounded-xl px-3 py-2", GLASS)}>
+              {renderLegendContent()}
             </div>
           )}
         </div>
       )}
 
+      {/* ===== DISTRIBUTION PANEL ===== */}
+      {canAssignSalesDriver && !loading && rows.length > 0 && (
+        <DistributionPanel
+          filtersKey={filtersKey}
+          onPlanReady={(plan, orders) => {
+            setDistPlan(plan);
+            setDistOrders(orders);
+          }}
+          onApplied={() => {
+            setDistPlan(null);
+            setDistOrders([]);
+            setDistHoveredOrder(null);
+            void loadPoints();
+          }}
+          highlightedOrderId={distHoveredOrder}
+          onHoverOrder={setDistHoveredOrder}
+        />
+      )}
+
+      {/* ===== PRODUCT LINES — collapsible, default closed ===== */}
       {!loading && rows.length > 0 && (
-        <Card className="border-border/60">
-          <CardHeader className="pb-2">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="space-y-1.5">
-                <CardTitle className="text-base">{t("salesMapLinesTitle")}</CardTitle>
-                <CardDescription>{t("salesMapLinesHint")}</CardDescription>
-              </div>
-              {linesForTable.length > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-2"
-                  disabled={exportingLinesExcel}
-                  onClick={() => {
-                    void (async () => {
-                      if (linesExcelRows.length === 0) return;
-                      try {
-                        setExportingLinesExcel(true);
-                        await downloadExcelFromRows(linesExcelRows, "sales_map_product_lines", {
-                          sheetName: "ProductLines",
-                          totals: linesExcelTotals,
-                          totalLabel: t("tableTotal"),
-                        });
-                      } finally {
-                        setExportingLinesExcel(false);
-                      }
-                    })();
-                  }}
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  {exportingLinesExcel ? t("loading") : t("exportExcel")}
-                </Button>
-              )}
+        <Card className="border-border/40 rounded-2xl overflow-hidden">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-muted/30 transition-colors"
+            onClick={() => setLinesOpen((v) => !v)}
+          >
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">{t("salesMapLinesTitle")}</p>
+              <p className="text-xs text-muted-foreground">{t("salesMapLinesHint")}</p>
             </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            {rowsFilteredByDriver.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {mapDriverFilter === "unassigned" ? t("salesMapUnassignedEmpty") : t("salesMapAssignedEmpty")}
-              </p>
-            ) : linesForTable.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("salesMapLinesEmpty")}</p>
-            ) : (
-              <>
-                {linesForTable.length > LINES_TABLE_MAX && (
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    {t("salesMapAssignedFirstRows")} ({LINES_TABLE_MAX} / {linesForTable.length})
-                  </p>
-                )}
-                <div className="max-h-[min(420px,50vh)] overflow-auto rounded-xl border border-border/60">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("drivers")}</TableHead>
-                        <TableHead className="tabular-nums">{t("productCode")}</TableHead>
-                        <TableHead>{t("productName")}</TableHead>
-                        <TableHead className="text-right tabular-nums">{t("qty")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {linesForTable.slice(0, LINES_TABLE_MAX).map((line, idx) => {
-                        const id1 = Number(line.IdReal1);
-                        const id2 = line.IdReal2 != null ? Number(line.IdReal2) : idx;
-                        const rowKey = Number.isFinite(id1) && Number.isFinite(id2) ? `${id1}-${id2}` : `line-${idx}`;
-                        return (
-                          <TableRow key={rowKey}>
-                            <TableCell className="max-w-[200px] truncate">{driverLabelForRow(line)}</TableCell>
-                            <TableCell className="tabular-nums text-muted-foreground">
-                              {line.IdProd != null && String(line.IdProd).trim() !== ""
-                                ? String(line.IdProd)
-                                : "—"}
-                            </TableCell>
-                            <TableCell className="max-w-[280px] truncate">{String(line.Prod ?? "")}</TableCell>
-                            <TableCell className="text-right tabular-nums">{formatLineQty(line.Raod)}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+            <div className="flex items-center gap-2 shrink-0">
+              {linesForTable.length > 0 && (
+                <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums">
+                  {linesForTable.length}
+                </span>
+              )}
+              {linesOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </div>
+          </button>
+
+          {linesOpen && (
+            <CardContent className="px-4 pb-4 pt-0 space-y-3 border-t border-border/30">
+              {linesForTable.length > 0 && (
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-2 rounded-full text-xs"
+                    disabled={exportingLinesExcel}
+                    onClick={() => {
+                      void (async () => {
+                        if (linesExcelRows.length === 0) return;
+                        try {
+                          setExportingLinesExcel(true);
+                          await downloadExcelFromRows(linesExcelRows, "sales_map_product_lines", {
+                            sheetName: "ProductLines",
+                            totals: linesExcelTotals,
+                            totalLabel: t("tableTotal"),
+                          });
+                        } finally {
+                          setExportingLinesExcel(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    {exportingLinesExcel ? t("loading") : t("exportExcel")}
+                  </Button>
                 </div>
-              </>
-            )}
-          </CardContent>
+              )}
+
+              {rowsFilteredByDriver.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {mapDriverFilter === "unassigned" ? t("salesMapUnassignedEmpty") : t("salesMapAssignedEmpty")}
+                </p>
+              ) : linesForTable.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("salesMapLinesEmpty")}</p>
+              ) : (
+                <>
+                  {linesForTable.length > LINES_TABLE_MAX && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("salesMapAssignedFirstRows")} ({LINES_TABLE_MAX} / {linesForTable.length})
+                    </p>
+                  )}
+                  <div className="max-h-[min(400px,50vh)] overflow-auto rounded-xl border border-border/50">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("drivers")}</TableHead>
+                          <TableHead className="tabular-nums">{t("productCode")}</TableHead>
+                          <TableHead>{t("productName")}</TableHead>
+                          <TableHead className="text-right tabular-nums">{t("qty")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {linesForTable.slice(0, LINES_TABLE_MAX).map((line, idx) => {
+                          const id1 = Number(line.IdReal1);
+                          const id2 = line.IdReal2 != null ? Number(line.IdReal2) : idx;
+                          const rowKey = Number.isFinite(id1) && Number.isFinite(id2) ? `${id1}-${id2}` : `line-${idx}`;
+                          return (
+                            <TableRow key={rowKey}>
+                              <TableCell className="max-w-[200px] truncate">{driverLabelForRow(line)}</TableCell>
+                              <TableCell className="tabular-nums text-muted-foreground">
+                                {line.IdProd != null && String(line.IdProd).trim() !== ""
+                                  ? String(line.IdProd)
+                                  : "—"}
+                              </TableCell>
+                              <TableCell className="max-w-[280px] truncate">{String(line.Prod ?? "")}</TableCell>
+                              <TableCell className="text-right tabular-nums">{formatLineQty(line.Raod)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          )}
         </Card>
       )}
     </div>

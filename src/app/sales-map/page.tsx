@@ -2,11 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { useFilterOptions } from "@/lib/useFilterOptions";
-import { useFilters } from "@/lib/useFilters";
+import { useSalesMapFilters } from "@/lib/useFilters";
 import { buildFilterQueryString } from "@/lib/filters";
 import { useLocale } from "@/lib/locale-context";
-import { FilterBar } from "@/components/filters/FilterBar";
-import { CrossFilterChips } from "@/components/filters/CrossFilterChips";
+import { SalesMapFilterBar } from "@/components/sales-map/SalesMapFilterBar";
 import { PageGradientBackdrop } from "@/components/layout/PageGradientBackdrop";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,25 +21,21 @@ const SalesMapView = dynamic(
 export default function SalesMapPage() {
   const { t } = useLocale();
   const filterOptions = useFilterOptions();
-  const {
-    filters,
-    ready,
-    crossFilters,
-    handleFiltersChange,
-    removeCrossFilter,
-    clearAllCrossFilters,
-  } = useFilters();
+  const { filters, ready, handleFiltersChange } = useSalesMapFilters();
 
   const filterKey = buildFilterQueryString(filters);
 
   return (
     <div className="relative min-h-full">
       <PageGradientBackdrop />
-      <div className="relative mx-auto max-w-[1600px] space-y-8 px-6 pb-8 pt-6">
-        <div className="space-y-4 pt-6">
+      <div className="relative mx-auto max-w-[1600px] space-y-4 px-6 pb-6 pt-6">
+        <div className="space-y-3 pt-4">
           <PageHeader title={t("salesMap")} description={t("salesMapPageDesc")} />
-          <FilterBar filters={filters} onFiltersChange={handleFiltersChange} options={filterOptions} />
-          <CrossFilterChips crossFilters={crossFilters} onRemove={removeCrossFilter} onClearAll={clearAllCrossFilters} />
+          <SalesMapFilterBar
+            filters={filters}
+            onFiltersChange={handleFiltersChange}
+            options={filterOptions}
+          />
         </div>
 
         <SalesMapView filtersKey={filterKey} filtersReady={ready} />

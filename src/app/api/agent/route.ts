@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateSQLFromQuestion } from "@/lib/openai";
 import { executeReadOnlyQuery } from "@/lib/db";
 import { formatOwnerHintsForSystemPrompt, listOwnerAgentHints } from "@/lib/owner-agent-hints-db";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
@@ -8,14 +7,13 @@ import { detectComparisonIntent } from "@/lib/agent-comparison-intent";
 import { postprocessAgentComparison } from "@/lib/agent-comparison-postprocess";
 import { detectMetricIntent, metricIntentToMeasureDisplay } from "@/lib/agent-metric-intent";
 import {
-  validateAgentResponse,
-  formatValidationFeedbackForRetry,
-} from "@/lib/agent-response-validate";
-import {
   extractAliasMapFromHints,
   normalizeQuestionWithAliases,
 } from "@/lib/agent-alias-normalize";
 import { parseMinOrderAmountIntent } from "@/lib/agent-min-order-amount-intent";
+import { orchestrate, PermissionDeniedError } from "@/lib/orchestrator/orchestrator";
+import { getCrossDomainSuggestions } from "@/lib/orchestrator/cross-domain-suggestions";
+import { ValidationError } from "@/lib/agents/sales/sales-agent";
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,45 +41,21 @@ export async function POST(req: NextRequest) {
     const metricIntent = detectMetricIntent(normalizedQuestion);
     const minOrderAmountIntent = parseMinOrderAmountIntent(normalizedQuestion);
 
-    const genOpts = {
+    const { merged, domain } = await orchestrate({
+      question,
+      normalizedQuestion,
+      history: history || [],
+      locale: lang,
+      userId: auth.ctx.user.id,
+      permissions: auth.ctx.permissions,
       ownerHintsBlock: ownerHintsBlock || undefined,
       comparisonIntent,
       metricIntent,
       aliasContext,
       minOrderAmountIntent,
-    };
+    });
 
-    let aiResponse = await generateSQLFromQuestion(normalizedQuestion, history || [], lang, genOpts);
-
-    let validation = validateAgentResponse(
-      aiResponse,
-      metricIntent,
-      aliasContext,
-      minOrderAmountIntent,
-    );
-    if (!validation.ok) {
-      aiResponse = await generateSQLFromQuestion(normalizedQuestion, history || [], lang, {
-        ...genOpts,
-        validationFeedback: formatValidationFeedbackForRetry(validation.reasons),
-      });
-      validation = validateAgentResponse(
-        aiResponse,
-        metricIntent,
-        aliasContext,
-        minOrderAmountIntent,
-      );
-      if (!validation.ok) {
-        return NextResponse.json(
-          {
-            error: "Agent response failed metric validation",
-            details: validation.reasons.join(" "),
-            sql: aiResponse.sql,
-            narrative: aiResponse.narrative,
-          },
-          { status: 422 }
-        );
-      }
-    }
+    const aiResponse = merged.response;
 
     let data: Record<string, unknown>[] = [];
     try {
@@ -127,6 +101,12 @@ export async function POST(req: NextRequest) {
           "Count how many rows have MinOrderAmount configured",
         ];
 
+    const baseSuggestions = isEmpty
+      ? (aiResponse.suggestedQuestions?.length ? aiResponse.suggestedQuestions : fallbackSuggestions)
+      : (aiResponse.suggestedQuestions || []);
+    const crossSuggestions = getCrossDomainSuggestions(domain, lang, 2);
+    const allSuggestions = [...baseSuggestions, ...crossSuggestions].slice(0, 6);
+
     return NextResponse.json({
       sql: aiResponse.sql,
       data: processed.data,
@@ -141,12 +121,26 @@ export async function POST(req: NextRequest) {
           }
         : null,
       narrative: isEmpty ? `${narrative}\n\n${emptyNarrative}`.trim() : narrative,
-      suggestedQuestions: isEmpty
-        ? (aiResponse.suggestedQuestions?.length ? aiResponse.suggestedQuestions : fallbackSuggestions)
-        : (aiResponse.suggestedQuestions || []),
+      suggestedQuestions: allSuggestions,
       metricIntentKind: metricIntent.kind,
+      domain,
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      return NextResponse.json(
+        {
+          error: "Agent response failed metric validation",
+          details: error.reasons.join(" "),
+        },
+        { status: 422 }
+      );
+    }
+    if (error instanceof PermissionDeniedError) {
+      return NextResponse.json(
+        { error: `Access denied for ${error.domain} domain` },
+        { status: 403 }
+      );
+    }
     console.error("Agent API error:", error);
     return NextResponse.json(
       {

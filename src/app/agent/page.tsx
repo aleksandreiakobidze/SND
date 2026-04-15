@@ -6,6 +6,7 @@ import { Bot, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/agent/ChatMessage";
 import { ChatInput } from "@/components/agent/ChatInput";
+import type { VoiceLang } from "@/hooks/useSpeechRecognition";
 import { SuggestedQueries } from "@/components/agent/SuggestedQueries";
 import { AgentModeSwitcher, type AgentPageMode } from "@/components/agent/AgentModeSwitcher";
 import { PageGradientBackdrop, stickyFilterGlassClass } from "@/components/layout/PageGradientBackdrop";
@@ -25,7 +26,9 @@ import type { AgentMessage, AgentResponse } from "@/types";
 import {
   parseEmailDeliveryIntent,
   shouldIncludeChartImageInEmail,
+  isValidEmailFormat,
 } from "@/lib/agent-email-delivery-intent";
+import { extractAliasMapFromHints } from "@/lib/agent-alias-normalize";
 import {
   agentMessageHasChartable,
   inferDefaultAgentReportView,
@@ -91,6 +94,24 @@ function AgentPageContent() {
   const [agentReportViewByMessageId, setAgentReportViewByMessageId] = useState<
     Record<string, AgentReportView>
   >({});
+
+  // Hints loaded for client-side alias resolution (e.g. email aliases like "bsc = user@company.ge")
+  const hintsRef = useRef<{ body: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/agent/hints", { credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => { if (Array.isArray(j.hints)) hintsRef.current = j.hints; })
+      .catch(() => {});
+  }, []);
+
+  // Voice language for TTS playback — synced from locale by default
+  const [voiceLang, setVoiceLang] = useState<VoiceLang>(() =>
+    locale === "ka" ? "ka-GE" : "en-US",
+  );
+  // Keep voiceLang in sync when locale changes
+  useEffect(() => {
+    setVoiceLang(locale === "ka" ? "ka-GE" : "en-US");
+  }, [locale]);
 
   const handleReportViewChange = useCallback((id: string, view: AgentReportView) => {
     setAgentReportViewByMessageId((prev) => ({ ...prev, [id]: view }));
@@ -214,6 +235,20 @@ function AgentPageContent() {
       let recipient =
         delivery.recipientEmail?.trim() ||
         (delivery.useSignedInEmail ? user?.email?.trim() : undefined);
+
+      // If no direct email found, try resolving hint aliases (e.g. "bsc = user@company.ge")
+      if (!recipient && hintsRef.current.length > 0) {
+        const aliasMap = extractAliasMapFromHints(hintsRef.current as Parameters<typeof extractAliasMapFromHints>[0]);
+        const words = question.toLowerCase().split(/\s+/);
+        for (const word of words) {
+          const clean = word.replace(/[^a-z0-9_-]/g, "");
+          const resolved = aliasMap[clean];
+          if (resolved && isValidEmailFormat(resolved)) {
+            recipient = resolved;
+            break;
+          }
+        }
+      }
 
       if (delivery.useSignedInEmail && !user?.email) {
         const err: AgentMessage = {
@@ -478,6 +513,7 @@ function AgentPageContent() {
         chartConfig: response.chartConfig,
         narrative: response.narrative,
         metricIntentKind: response.metricIntentKind,
+        domain: response.domain,
         timestamp: new Date(),
       };
 
@@ -711,6 +747,7 @@ function AgentPageContent() {
                         onSaveToWorkspace={openSaveToWorkspace}
                         onReportViewChange={handleReportViewChange}
                         registerChartCapture={registerChartCapture}
+                        voiceLang={voiceLang}
                       />
                     ))}
                     {!agentLoading && agentSuggestions.length > 0 && (
@@ -744,7 +781,7 @@ function AgentPageContent() {
                 ) : (
                   <>
                     {coachMessages.map((msg) => (
-                      <AnalyticsCoachMessage key={msg.id} message={msg} />
+                      <AnalyticsCoachMessage key={msg.id} message={msg} voiceLang={voiceLang} />
                     ))}
                     {!coachLoading && coachSuggestions.length > 0 && (
                       <SuggestedQueries

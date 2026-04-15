@@ -23,7 +23,7 @@ export type NormalizedAliasContext = {
   byDimensionUses: AliasByDimensionUse[];
 };
 
-const ALIAS_RULE_RE = /^\s*([a-zA-Z0-9_\-]+)\s*=\s*([a-zA-Z0-9_\-\s]+?)\s*$/;
+const ALIAS_RULE_RE = /^\s*([a-zA-Z0-9_\-]+)\s*=\s*([a-zA-Z0-9_\-\s@.+]+?)\s*$/;
 
 function escapeRegExp(v: string): string {
   return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

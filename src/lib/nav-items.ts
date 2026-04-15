@@ -10,6 +10,8 @@ import {
   Smartphone,
   Shield,
   MapPin,
+  Truck,
+  CalendarCheck,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n";
 
@@ -47,6 +49,8 @@ export const SIDEBAR_NAV_ITEMS: SidebarNavItemDef[] = [
   { id: "workspace", groupId: "workspace", href: "/workspace", labelKey: "myWorkspace", icon: LayoutGrid },
   { id: "agent", groupId: "agent", href: "/agent", labelKey: "aiAgent", icon: Bot },
   { id: "sales-map", groupId: "admin", href: "/sales-map", labelKey: "salesMap", icon: MapPin },
+  { id: "vehicles", groupId: "admin", href: "/vehicles", labelKey: "vehicles", icon: Truck },
+  { id: "fleet-schedule", groupId: "admin", href: "/fleet-schedule", labelKey: "fleetSchedule", icon: CalendarCheck },
   { id: "admin-users", groupId: "admin", href: "/admin", labelKey: "adminUsers", icon: Shield },
 ];
 

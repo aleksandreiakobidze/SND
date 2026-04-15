@@ -29,6 +29,8 @@ export interface AgentMessage {
   narrative?: string;
   /** Preserved from agent API for re-export / email (same query semantics). */
   metricIntentKind?: AgentMetricIntentKind;
+  /** Which domain agent handled this request. */
+  domain?: AgentDomainKind;
   timestamp: Date;
   loading?: boolean;
 }
@@ -64,6 +66,13 @@ export interface ChartConfig {
   measureDisplay?: ChartMeasureDisplay;
 }
 
+export type AgentDomainKind =
+  | "sales"
+  | "online"
+  | "pricing"
+  | "purchase"
+  | "inventory";
+
 export interface AgentResponse {
   sql: string;
   data: Record<string, unknown>[];
@@ -72,6 +81,8 @@ export interface AgentResponse {
   suggestedQuestions?: string[];
   /** Echo for client-side re-execution / email export. */
   metricIntentKind?: AgentMetricIntentKind;
+  /** Which domain agent handled this request. */
+  domain?: AgentDomainKind;
 }
 
 export interface DashboardData {

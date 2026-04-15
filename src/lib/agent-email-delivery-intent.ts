@@ -64,6 +64,16 @@ const MY_EMAIL_PATTERNS: RegExp[] = [
   /\b(?:send|email|mail)\s+(?:this|the\s+result|the\s+report)?\s*to\s+my\s+email\b/i,
   /\bto\s+my\s+email\b/i,
   /ჩემს\s+მეილზე\s+გამომიგზავნე/i,
+  // English: "e mail" (with space/hyphen), "send me ... email", "on my email"
+  /\bto\s+my\s+e[\s-]?mail\b/i,
+  /\bsend\s+(?:it\s+)?(?:to\s+)?me\b.*\be[\s-]?mail\b/i,
+  /\bon\s+my\s+e[\s-]?mail\b/i,
+  /\bmy\s+e[\s-]?mail\b/i,
+  // Georgian: "ჩემ" (without "ს") + mail/post variants, any word order
+  /ჩემ\s+(?:მეილ|ფოსტ|იმეილ|ელ\.?\s*ფოსტ)/i,
+  /გამომიგზავნე\s+ჩემ[სი]?\s+(?:მეილ|ფოსტ|იმეილ)/i,
+  // "გამომიგზავნე მეილზე" with no explicit recipient → treat as signed-in
+  /გამომიგზავნე\s+(?:ამ\s+)?მეილზე/i,
 ];
 
 /** Rich analysis / full explanation in email body (evaluated before summary). */

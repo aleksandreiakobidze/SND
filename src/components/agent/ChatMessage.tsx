@@ -16,6 +16,8 @@ import {
   BookmarkPlus,
   LayoutGrid,
   FileSpreadsheet,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +35,9 @@ import {
 import { resolveMeasureDisplay } from "@/lib/agent-metric-intent";
 import { DataTable } from "@/components/data-table/DataTable";
 import { useLocale } from "@/lib/locale-context";
-import type { AgentMessage, ChartConfig } from "@/types";
+import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis";
+import type { VoiceLang } from "@/hooks/useSpeechRecognition";
+import type { AgentMessage, AgentDomainKind, ChartConfig } from "@/types";
 import { firstNonTechnicalColumnKey, numericMeasureKeys } from "@/lib/technical-columns";
 import { cn } from "@/lib/utils";
 import {
@@ -69,6 +73,14 @@ function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[])
   return { nameKey: xKey, valueKeys };
 }
 
+const DOMAIN_BADGE_META: Record<AgentDomainKind, { label: string; labelKa: string; cls: string }> = {
+  sales: { label: "Sales", labelKa: "გაყიდვები", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" },
+  online: { label: "Field Ops", labelKa: "საველე", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30" },
+  pricing: { label: "Pricing", labelKa: "ფასები", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" },
+  purchase: { label: "Purchase", labelKa: "შესყიდვა", cls: "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30" },
+  inventory: { label: "Inventory", labelKa: "მარაგი", cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30" },
+};
+
 interface ChatMessageProps {
   message: AgentMessage;
   onSaveToWorkspace?: (message: AgentMessage) => void;
@@ -76,6 +88,8 @@ interface ChatMessageProps {
   onReportViewChange?: (messageId: string, view: AgentReportView) => void;
   /** Register a PNG capture fn for email; parent calls it for this message id. */
   registerChartCapture?: (messageId: string, fn: (() => Promise<string | null>) | null) => void;
+  /** Language for text-to-speech playback */
+  voiceLang?: VoiceLang;
 }
 
 export function ChatMessage({
@@ -83,8 +97,10 @@ export function ChatMessage({
   onSaveToWorkspace,
   onReportViewChange,
   registerChartCapture,
+  voiceLang = "en-US",
 }: ChatMessageProps) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const { speak, cancel, speaking, supported: ttsSupported } = useSpeechSynthesis();
   const [showSQL, setShowSQL] = useState(false);
   const [chartVariant, setChartVariant] = useState<ChartVariant | null>(null);
   const isUser = message.role === "user";
@@ -258,10 +274,33 @@ export function ChatMessage({
         <Bot className="h-4 w-4 text-primary" />
       </div>
       <div className="flex-1 space-y-3 min-w-0">
+        {message.domain && DOMAIN_BADGE_META[message.domain] && (
+          <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase", DOMAIN_BADGE_META[message.domain].cls)}>
+            {locale === "ka" ? DOMAIN_BADGE_META[message.domain].labelKa : DOMAIN_BADGE_META[message.domain].label}
+          </span>
+        )}
         {message.narrative && (
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-2 group/narrative">
             <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-sm leading-relaxed">{message.narrative}</p>
+            <p className="text-sm leading-relaxed flex-1">{message.narrative}</p>
+            {ttsSupported && (
+              <button
+                type="button"
+                onClick={() => speaking ? cancel() : speak(message.narrative!, voiceLang)}
+                className={cn(
+                  "shrink-0 mt-0.5 p-1 rounded-lg transition-all opacity-0 group-hover/narrative:opacity-100",
+                  speaking
+                    ? "text-primary bg-primary/10 opacity-100"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
+                title={speaking ? t("voiceStop") : t("voiceSpeak")}
+              >
+                {speaking
+                  ? <VolumeX className="h-3.5 w-3.5" />
+                  : <Volume2 className="h-3.5 w-3.5" />
+                }
+              </button>
+            )}
           </div>
         )}
 
