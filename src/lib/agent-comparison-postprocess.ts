@@ -52,7 +52,9 @@ function isTimeBucketColumnKey(key: string): boolean {
 
 function isLikelyMeasureColumnKey(key: string): boolean {
   const k = key.trim().toLowerCase();
-  return /revenue|tanxa|amount|total|liters|tevadoba|raod|qty|quantity|value|sum|sales|gross|net|money|amt/i.test(k);
+  return /count|customercount|ordercount|distinct|revenue|tanxa|amount|total|liters|tevadoba|raod|qty|quantity|value|sum|sales|gross|net|money|amt/i.test(
+    k,
+  );
 }
 
 function measureIntentBoost(key: string, intent: MetricIntentResult | null | undefined): number {
@@ -64,7 +66,7 @@ function measureIntentBoost(key: string, intent: MetricIntentResult | null | und
       if (/tanxa|revenue/i.test(k)) return -4;
       return 0;
     case "quantity_units":
-      if (/raod|qty|quantity|units/i.test(k)) return 8;
+      if (/count|distinct|raod|qty|quantity|units/i.test(k)) return 8;
       return 0;
     case "revenue_gel":
       if (/tanxa|revenue|amount/i.test(k)) return 8;
@@ -118,7 +120,8 @@ export function inferTidyLongKeys(
   const keys = keysForRow(rows[0]);
   if (keys.length < 3) return null;
 
-  const numericKeys = keys.filter((k) => rows.every((r) => isNumericLike(r[k])));
+  const sampleRows = rows.slice(0, Math.min(50, rows.length));
+  const numericKeys = keys.filter((k) => sampleRows.every((r) => isNumericLike(r[k])));
   const measureKey = pickMeasureColumnKey(numericKeys, rows, metricIntent);
   if (!measureKey) return null;
 

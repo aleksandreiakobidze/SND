@@ -1,6 +1,10 @@
 import {
+  RECENT_TX_VALUE_META,
+  defaultAggregationForValueId,
+  type RecentTxValueDef,
+  normalizeValueDefs,
   RECENT_TX_ID_TO_ROW_KEY,
-  isRecentTxMeasureColumnId,
+  isRecentTxValueEligible,
   type RecentTransactionsColumnId,
 } from "@/lib/recent-transactions-columns";
 
@@ -29,79 +33,104 @@ export function makePivotKey(row: Record<string, unknown>, dimIds: RecentTransac
 }
 
 type MeasureAcc = {
-  sumQty: number;
-  sumLiters: number;
-  sumAmount: number;
-  sumPriceTimesQty: number;
-  sumQtyForWeightedPrice: number;
-  sumPrice: number;
-  nPrice: number;
+  stats: Partial<
+    Record<
+      RecentTransactionsColumnId,
+      {
+        sum: number;
+        count: number;
+        min: number;
+        max: number;
+        distinct: Set<string>;
+      }
+    >
+  >;
 };
 
 export function emptyAcc(): MeasureAcc {
-  return {
-    sumQty: 0,
-    sumLiters: 0,
-    sumAmount: 0,
-    sumPriceTimesQty: 0,
-    sumQtyForWeightedPrice: 0,
-    sumPrice: 0,
-    nPrice: 0,
-  };
+  return { stats: {} };
+}
+
+function keyify(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
+}
+
+function ensureStat(acc: MeasureAcc, id: RecentTransactionsColumnId) {
+  if (!acc.stats[id]) {
+    acc.stats[id] = {
+      sum: 0,
+      count: 0,
+      min: Number.POSITIVE_INFINITY,
+      max: Number.NEGATIVE_INFINITY,
+      distinct: new Set<string>(),
+    };
+  }
+  return acc.stats[id]!;
 }
 
 function addRowToAcc(acc: MeasureAcc, row: Record<string, unknown>): void {
-  const qty = parseNum(row.Qty) ?? 0;
-  const liters = parseNum(row.Liters) ?? 0;
-  const amount = parseNum(row.Amount) ?? 0;
-  const price = parseNum(row.Price);
-  acc.sumQty += qty;
-  acc.sumLiters += liters;
-  acc.sumAmount += amount;
-  if (price !== null) {
-    acc.sumPrice += price;
-    acc.nPrice++;
-    if (qty > 0) {
-      acc.sumPriceTimesQty += price * qty;
-      acc.sumQtyForWeightedPrice += qty;
+  for (const id of Object.keys(RECENT_TX_VALUE_META) as RecentTransactionsColumnId[]) {
+    const meta = RECENT_TX_VALUE_META[id];
+    if (!meta) continue;
+    const stat = ensureStat(acc, id);
+    const raw = row[meta.sourceField];
+    const key = keyify(raw);
+    if (key) {
+      stat.distinct.add(key);
+      stat.count += 1;
     }
+    const n = parseNum(raw);
+    if (n === null) continue;
+    stat.sum += n;
+    stat.min = Math.min(stat.min, n);
+    stat.max = Math.max(stat.max, n);
   }
 }
 
 export function mergeAcc(into: MeasureAcc, from: MeasureAcc): void {
-  into.sumQty += from.sumQty;
-  into.sumLiters += from.sumLiters;
-  into.sumAmount += from.sumAmount;
-  into.sumPriceTimesQty += from.sumPriceTimesQty;
-  into.sumQtyForWeightedPrice += from.sumQtyForWeightedPrice;
-  into.sumPrice += from.sumPrice;
-  into.nPrice += from.nPrice;
+  for (const id of Object.keys(from.stats) as RecentTransactionsColumnId[]) {
+    const fs = from.stats[id];
+    if (!fs) continue;
+    const ts = ensureStat(into, id);
+    ts.sum += fs.sum;
+    ts.count += fs.count;
+    ts.min = Math.min(ts.min, fs.min);
+    ts.max = Math.max(ts.max, fs.max);
+    for (const v of fs.distinct) ts.distinct.add(v);
+  }
 }
 
-export function accToValues(acc: MeasureAcc, valueIds: RecentTransactionsColumnId[]): Record<RecentTransactionsColumnId, number | null> {
+function statValue(
+  stat: { sum: number; count: number; min: number; max: number; distinct: Set<string> } | undefined,
+  def: RecentTxValueDef,
+): number | null {
+  if (!stat) return null;
+  switch (def.aggregation) {
+    case "sum":
+      return stat.sum;
+    case "count":
+      return stat.count;
+    case "distinct_count":
+      return stat.distinct.size;
+    case "avg":
+      return stat.count > 0 ? stat.sum / stat.count : null;
+    case "min":
+      return stat.count > 0 ? stat.min : null;
+    case "max":
+      return stat.count > 0 ? stat.max : null;
+    default:
+      return stat.sum;
+  }
+}
+
+export function accToValues(
+  acc: MeasureAcc,
+  valueDefs: RecentTxValueDef[],
+): Record<RecentTransactionsColumnId, number | null> {
   const out: Partial<Record<RecentTransactionsColumnId, number | null>> = {};
-  for (const id of valueIds) {
-    switch (id) {
-      case "qty":
-        out.qty = acc.sumQty;
-        break;
-      case "liter":
-        out.liter = acc.sumLiters;
-        break;
-      case "amount":
-        out.amount = acc.sumAmount;
-        break;
-      case "price":
-        out.price =
-          acc.sumQtyForWeightedPrice > 0
-            ? acc.sumPriceTimesQty / acc.sumQtyForWeightedPrice
-            : acc.nPrice > 0
-              ? acc.sumPrice / acc.nPrice
-              : null;
-        break;
-      default:
-        break;
-    }
+  for (const def of valueDefs) {
+    out[def.valueId] = statValue(acc.stats[def.valueId], def);
   }
   return out as Record<RecentTransactionsColumnId, number | null>;
 }
@@ -123,6 +152,7 @@ export type PivotModel = {
   rowIds: RecentTransactionsColumnId[];
   colIds: RecentTransactionsColumnId[];
   valueIds: RecentTransactionsColumnId[];
+  valueDefs: RecentTxValueDef[];
   /** Sorted column keys (composite of col dimensions). */
   colKeys: string[];
   /** Human label per col key (e.g. "3 · 2024"). */
@@ -188,14 +218,16 @@ export function buildPivotModel(
   rowIds: RecentTransactionsColumnId[],
   colIds: RecentTransactionsColumnId[],
   valueIds: RecentTransactionsColumnId[],
+  valueDefsInput?: RecentTxValueDef[],
   options?: BuildPivotOptions,
 ): PivotModel {
-  const badMeasure = valueIds.some((id) => !isRecentTxMeasureColumnId(id));
+  const badMeasure = valueIds.some((id) => !isRecentTxValueEligible(id));
   if (badMeasure || valueIds.length === 0) {
     return {
       rowIds,
       colIds,
       valueIds,
+      valueDefs: [],
       colKeys: [],
       colLabels: new Map(),
       dataRowKeys: [],
@@ -204,6 +236,7 @@ export function buildPivotModel(
       displayRows: [],
     };
   }
+  const valueDefs = normalizeValueDefs(valueIds, valueDefsInput);
 
   const cells = new Map<string, Map<string, MeasureAcc>>();
 
@@ -271,6 +304,7 @@ export function buildPivotModel(
     rowIds,
     colIds,
     valueIds,
+    valueDefs,
     colKeys,
     colLabels,
     dataRowKeys,

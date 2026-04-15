@@ -48,6 +48,8 @@ import {
   RECENT_TRANSACTIONS_COLUMN_IDS,
   RECENT_TX_COLUMN_LABEL_KEY,
   RECENT_TX_ID_TO_ROW_KEY,
+  RECENT_TX_ROW_KEY_DISPLAY_META,
+  recentTxDisplayMetaForRowKey,
   type RecentTransactionsColumnId,
 } from "@/lib/recent-transactions-columns";
 import {
@@ -61,6 +63,7 @@ import {
   sumAccForFirstDimPrefix,
   type PivotModel,
 } from "@/lib/recent-transactions-pivot";
+import { getMatrixValueDefs } from "@/lib/dashboard-layout";
 import { computeColumnTotals } from "@/lib/table-totals";
 import { downloadCsvFromRows } from "@/lib/export-csv";
 import { downloadExcelFromRows } from "@/lib/export-excel";
@@ -83,6 +86,7 @@ import {
   removeFieldFromTable,
   reorderMatrixZone,
   reorderTableColumns,
+  setMatrixValueAggregation,
 } from "@/lib/recent-transactions-prefs-ops";
 
 const RT_TABLE_SLOT = "rtt:";
@@ -178,14 +182,21 @@ export function RecentTransactionsTable({
   const pivotModel = useMemo(() => {
     if (viewMode !== "matrix") return null;
     const v = matrix.valueIds?.length ? matrix.valueIds : (["liter"] as RecentTransactionsColumnId[]);
-    return buildPivotModel(searchFilteredRows, matrix.rowIds, matrix.columnIds, v, { locale: pivotLocale });
-  }, [viewMode, searchFilteredRows, matrix.rowIds, matrix.columnIds, matrix.valueIds, pivotLocale]);
+    const defs = getMatrixValueDefs({ ...matrix, valueIds: v });
+    return buildPivotModel(searchFilteredRows, matrix.rowIds, matrix.columnIds, v, defs, {
+      locale: pivotLocale,
+    });
+  }, [viewMode, searchFilteredRows, matrix, pivotLocale]);
 
   const tableData = useMemo(() => {
     if (viewMode === "matrix") return [] as Record<string, unknown>[];
     if (!searchFilteredRows.length) return [] as Record<string, unknown>[];
     if (shouldGroup) {
-      return aggregateRecentTransactionsRows(searchFilteredRows, visibleIds);
+      return aggregateRecentTransactionsRows(
+        searchFilteredRows,
+        visibleIds,
+        getMatrixValueDefs(matrix),
+      );
     }
     return searchFilteredRows.map((row) => {
       const out: Record<string, unknown> = {};
@@ -195,7 +206,7 @@ export function RecentTransactionsTable({
       }
       return out;
     });
-  }, [viewMode, searchFilteredRows, shouldGroup, visibleIds]);
+  }, [viewMode, searchFilteredRows, shouldGroup, visibleIds, matrix]);
 
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
     if (!visibleIds.length || viewMode === "matrix") return [];
@@ -223,7 +234,7 @@ export function RecentTransactionsTable({
               isLonLatColumnKey(column.id) && "font-mono tabular-nums",
             )}
           >
-            {formatTableCellDisplay(getValue(), column.id)}
+            {formatTableCellDisplay(getValue(), column.id, recentTxDisplayMetaForRowKey(column.id))}
           </span>
         ),
       };
@@ -380,7 +391,15 @@ export function RecentTransactionsTable({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
           {canCustomize ? (
           <div className="relative z-10 w-full shrink-0 xl:sticky xl:top-4 xl:max-w-sm xl:self-start">
-            <RecentTransactionsFieldPanel prefs={prefs} onPrefsChange={onPrefsChange} canCustomize={canCustomize} t={t} />
+            <RecentTransactionsFieldPanel
+              prefs={prefs}
+              onPrefsChange={onPrefsChange}
+              onMatrixValueAggregationChange={(valueId, aggregation) =>
+                onPrefsChange(setMatrixValueAggregation(prefs, valueId, aggregation))
+              }
+              canCustomize={canCustomize}
+              t={t}
+            />
           </div>
         ) : null}
 
@@ -433,6 +452,7 @@ export function RecentTransactionsTable({
                     sheetName: "sales_report".slice(0, 31),
                     totals: viewMode === "table" && hasAnyTotal ? columnTotals : null,
                     totalLabel: t("tableTotal"),
+                    columnDisplayMeta: RECENT_TX_ROW_KEY_DISPLAY_META,
                   });
                 }}
               >
@@ -505,7 +525,7 @@ export function RecentTransactionsTable({
                                 <TableCell key={header.id} className="whitespace-nowrap py-2">
                                   {total !== null && total !== undefined ? (
                                     <span className="text-sm font-semibold tabular-nums">
-                                      {formatTableCellDisplay(total, rk)}
+                                      {formatTableCellDisplay(total, rk, recentTxDisplayMetaForRowKey(rk))}
                                     </span>
                                   ) : colIndex === 0 ? (
                                     <span className="text-sm font-semibold">{t("tableTotal")}</span>
@@ -568,7 +588,7 @@ function pivotExportRows(model: PivotModel, t: (key: TranslationKey) => string):
       const o: Record<string, unknown> = { Row: `${t("rtSubtotal")} (${dr.label})` };
       for (const ck of cks) {
         const acc = colKeys.length ? sumAccColForPrefix(model, dr.label, ck) : sumAccForFirstDimPrefix(model, dr.label);
-        const vals = accToValues(acc, valueIds);
+        const vals = accToValues(acc, model.valueDefs);
         for (const vid of valueIds) {
           o[`${ck}-${RECENT_TX_ID_TO_ROW_KEY[vid]}`] = vals[vid];
         }
@@ -584,7 +604,7 @@ function pivotExportRows(model: PivotModel, t: (key: TranslationKey) => string):
     for (const ck of cks) {
       const rowMap = cells.get(rk);
       const a = rowMap?.get(ck) ?? null;
-      const vals = a ? accToValues(a, valueIds) : null;
+            const vals = a ? accToValues(a, model.valueDefs) : null;
       for (const vid of valueIds) {
         o[`${ck}-${RECENT_TX_ID_TO_ROW_KEY[vid]}`] = vals?.[vid];
       }

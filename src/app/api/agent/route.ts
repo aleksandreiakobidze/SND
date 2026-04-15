@@ -11,6 +11,11 @@ import {
   validateAgentResponse,
   formatValidationFeedbackForRetry,
 } from "@/lib/agent-response-validate";
+import {
+  extractAliasMapFromHints,
+  normalizeQuestionWithAliases,
+} from "@/lib/agent-alias-normalize";
+import { parseMinOrderAmountIntent } from "@/lib/agent-min-order-amount-intent";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,26 +34,42 @@ export async function POST(req: NextRequest) {
 
     const hints = await listOwnerAgentHints(auth.ctx.user.id);
     const ownerHintsBlock = formatOwnerHintsForSystemPrompt(hints);
+    const aliasMap = extractAliasMapFromHints(hints);
+    const aliasContext = normalizeQuestionWithAliases(question, aliasMap);
+    const normalizedQuestion = aliasContext.normalizedQuestion;
 
     const lang = locale === "ka" ? "ka" : "en";
-    const comparisonIntent = detectComparisonIntent(question);
-    const metricIntent = detectMetricIntent(question);
+    const comparisonIntent = detectComparisonIntent(normalizedQuestion);
+    const metricIntent = detectMetricIntent(normalizedQuestion);
+    const minOrderAmountIntent = parseMinOrderAmountIntent(normalizedQuestion);
 
     const genOpts = {
       ownerHintsBlock: ownerHintsBlock || undefined,
       comparisonIntent,
       metricIntent,
+      aliasContext,
+      minOrderAmountIntent,
     };
 
-    let aiResponse = await generateSQLFromQuestion(question, history || [], lang, genOpts);
+    let aiResponse = await generateSQLFromQuestion(normalizedQuestion, history || [], lang, genOpts);
 
-    let validation = validateAgentResponse(aiResponse, metricIntent);
+    let validation = validateAgentResponse(
+      aiResponse,
+      metricIntent,
+      aliasContext,
+      minOrderAmountIntent,
+    );
     if (!validation.ok) {
-      aiResponse = await generateSQLFromQuestion(question, history || [], lang, {
+      aiResponse = await generateSQLFromQuestion(normalizedQuestion, history || [], lang, {
         ...genOpts,
         validationFeedback: formatValidationFeedbackForRetry(validation.reasons),
       });
-      validation = validateAgentResponse(aiResponse, metricIntent);
+      validation = validateAgentResponse(
+        aiResponse,
+        metricIntent,
+        aliasContext,
+        minOrderAmountIntent,
+      );
       if (!validation.ok) {
         return NextResponse.json(
           {
@@ -86,6 +107,25 @@ export async function POST(req: NextRequest) {
     });
 
     const measureDisplay = metricIntentToMeasureDisplay(metricIntent.kind);
+    const narrative = aliasContext.byDimensionUses.reduce((acc, use) => {
+      const re = new RegExp(`\\b${use.alias}\\b`, "gi");
+      return acc.replace(re, use.label);
+    }, aiResponse.narrative ?? "");
+    const isEmpty = processed.data.length === 0;
+    const emptyNarrative = lang === "ka"
+      ? "ფილტრის შედეგად შესაბამისი ჩანაწერები ვერ მოიძებნა. გადაამოწმეთ, არის თუ არა MinOrderAmount ძირითადად ცარიელი, ან ხომ არ არის ზღვარი ძალიან მკაცრი. საჭიროების შემთხვევაში სცადეთ IS NOT NULL ფილტრი > 0-ის ნაცვლად."
+      : "No rows matched the current filter. Check whether MinOrderAmount is mostly null or whether the threshold is too strict. If needed, try IS NOT NULL instead of > 0.";
+    const fallbackSuggestions = lang === "ka"
+      ? [
+          "აჩვენე იგივე ანგარიში MinOrderAmount IS NOT NULL ფილტრით",
+          "აჩვენე იგივე ანგარიში MinOrderAmount ზღვრის გარეშე",
+          "მაჩვენე რამდენ ჩანაწერს აქვს MinOrderAmount საერთოდ შევსებული",
+        ]
+      : [
+          "Show the same report with MinOrderAmount IS NOT NULL",
+          "Show the same report without MinOrderAmount threshold",
+          "Count how many rows have MinOrderAmount configured",
+        ];
 
     return NextResponse.json({
       sql: aiResponse.sql,
@@ -100,8 +140,11 @@ export async function POST(req: NextRequest) {
             ...(measureDisplay ? { measureDisplay } : {}),
           }
         : null,
-      narrative: aiResponse.narrative,
-      suggestedQuestions: aiResponse.suggestedQuestions || [],
+      narrative: isEmpty ? `${narrative}\n\n${emptyNarrative}`.trim() : narrative,
+      suggestedQuestions: isEmpty
+        ? (aiResponse.suggestedQuestions?.length ? aiResponse.suggestedQuestions : fallbackSuggestions)
+        : (aiResponse.suggestedQuestions || []),
+      metricIntentKind: metricIntent.kind,
     });
   } catch (error) {
     console.error("Agent API error:", error);

@@ -22,6 +22,7 @@ import {
 import { colorForObjectTypeLabel } from "@/lib/map-object-type-colors";
 import { defaultChartValueFormat } from "@/lib/chart-number-format";
 import { BarDataLabel } from "@/components/charts/BarDataLabel";
+import { formatDateLikeLabel } from "@/lib/coordinate-format";
 
 export type ChartVariant = "bar" | "horizontal-bar" | "pie" | "area" | "line";
 
@@ -49,8 +50,13 @@ const tooltipStyle: CSSProperties = {
   color: "var(--card-foreground)",
 };
 
-const axisTick10 = { fontSize: 10, fill: "var(--foreground)" as const };
-const axisTick11 = { fontSize: 11, fill: "var(--foreground)" as const };
+/** SVG text fill for email/PNG: must stay dark on forced #fff background (see chart-capture-to-png). */
+const EXPORT_SAFE_FOREGROUND = "#0f172a";
+
+const axisTickTheme = (emailExportSafe: boolean, size: 10 | 11) => ({
+  fontSize: size,
+  fill: (emailExportSafe ? EXPORT_SAFE_FOREGROUND : "var(--foreground)") as string,
+});
 
 export interface FlexChartProps {
   data: Record<string, unknown>[];
@@ -70,6 +76,11 @@ export interface FlexChartProps {
   highlightValue?: string;
   /** Show numeric labels on bars; line/area ignore. Default true. */
   showDataLabels?: boolean;
+  /**
+   * Use opaque dark axis/legend/outside-label colors so PNG capture (white background) stays
+   * readable regardless of app light/dark theme. Intended for off-screen email export only.
+   */
+  emailExportSafe?: boolean;
 }
 
 function cellOpacity(
@@ -95,11 +106,26 @@ export function FlexChart({
   onElementClick,
   highlightValue,
   showDataLabels = true,
+  emailExportSafe = false,
 }: FlexChartProps) {
   const series = valueKeys || [{ key: valueKey, label: tooltipLabel, color: COLORS[0] }];
   const tipFmt = tooltipFormatter ?? formatter;
   const interactive = !!onElementClick;
   const cursorStyle = interactive ? "pointer" : "default";
+  const xTickFormatter = (v: unknown) => formatDateLikeLabel(v);
+  const axisTick10 = axisTickTheme(emailExportSafe, 10);
+  const axisTick11 = axisTickTheme(emailExportSafe, 11);
+  const gridStroke = emailExportSafe ? "#cbd5e1" : "var(--border)";
+  const legendColor = emailExportSafe ? EXPORT_SAFE_FOREGROUND : "var(--foreground)";
+  const tooltipStyleResolved: CSSProperties = emailExportSafe
+    ? {
+        backgroundColor: "#ffffff",
+        border: "1px solid #cbd5e1",
+        borderRadius: "8px",
+        fontSize: 12,
+        color: EXPORT_SAFE_FOREGROUND,
+      }
+    : tooltipStyle;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleClick = (entry: any) => {
@@ -110,6 +136,11 @@ export function FlexChart({
 
   if (variant === "pie") {
     const pieKey = series[0].key;
+    const pieLabelString = (name: unknown, percent: number | undefined, value: unknown) => {
+      const short = String(name).length > 10 ? String(name).slice(0, 10) + "…" : String(name);
+      const val = formatter(Number(value));
+      return `${short} ${val} (${((percent || 0) * 100).toFixed(0)}%)`;
+    };
     return (
       <ResponsiveContainer width="100%" height={height}>
         <PieChart>
@@ -122,12 +153,43 @@ export function FlexChart({
             innerRadius={Math.max(40, height * 0.15)}
             outerRadius={Math.max(70, height * 0.28)}
             paddingAngle={3}
-            label={({ name, percent, value }) => {
-              const short =
-                String(name).length > 10 ? String(name).slice(0, 10) + "…" : String(name);
-              const val = formatter(Number(value));
-              return `${short} ${val} (${((percent || 0) * 100).toFixed(0)}%)`;
-            }}
+            label={
+              emailExportSafe
+                ? (props: {
+                    cx?: number;
+                    cy?: number;
+                    midAngle?: number;
+                    innerRadius?: number;
+                    outerRadius?: number;
+                    name?: unknown;
+                    percent?: number;
+                    value?: unknown;
+                  }) => {
+                    const cx = props.cx ?? 0;
+                    const cy = props.cy ?? 0;
+                    const midAngle = props.midAngle ?? 0;
+                    const innerRadius = props.innerRadius ?? 0;
+                    const outerRadius = props.outerRadius ?? 0;
+                    const RADIAN = Math.PI / 180;
+                    const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+                    const x = cx + r * Math.cos(-midAngle * RADIAN);
+                    const y = cy + r * Math.sin(-midAngle * RADIAN);
+                    const text = pieLabelString(props.name, props.percent, props.value);
+                    return (
+                      <text
+                        x={x}
+                        y={y}
+                        fill={EXPORT_SAFE_FOREGROUND}
+                        textAnchor={x > cx ? "start" : "end"}
+                        dominantBaseline="central"
+                        fontSize={11}
+                      >
+                        {text}
+                      </text>
+                    );
+                  }
+                : ({ name, percent, value }) => pieLabelString(name, percent, value)
+            }
             labelLine={false}
             onClick={handleClick}
             style={{ cursor: cursorStyle }}
@@ -137,16 +199,22 @@ export function FlexChart({
                 key={i}
                 fill={colorForObjectTypeLabel(String(d[nameKey]))}
                 opacity={cellOpacity(d[nameKey], highlightValue)}
-                stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
+                stroke={
+                  String(d[nameKey]) === highlightValue
+                    ? emailExportSafe
+                      ? EXPORT_SAFE_FOREGROUND
+                      : "var(--foreground)"
+                    : undefined
+                }
                 strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
               />
             ))}
           </Pie>
-          <Tooltip contentStyle={tooltipStyle} formatter={(v) => [tipFmt(Number(v)), series[0].label]} />
+          <Tooltip contentStyle={tooltipStyleResolved} formatter={(v) => [tipFmt(Number(v)), series[0].label]} />
           <Legend
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }}
+            wrapperStyle={{ fontSize: 11, color: legendColor }}
           />
         </PieChart>
       </ResponsiveContainer>
@@ -166,12 +234,16 @@ export function FlexChart({
                 </linearGradient>
               ))}
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} opacity={0.3} />
+            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
             <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+            <Tooltip
+              contentStyle={tooltipStyleResolved}
+              formatter={(v, name) => [tipFmt(Number(v)), String(name)]}
+              labelFormatter={xTickFormatter}
+            />
             {series.length > 1 && (
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: legendColor }} />
             )}
             {series.map((s, i) => (
               <Area
@@ -187,12 +259,16 @@ export function FlexChart({
           </AreaChart>
         ) : (
           <LineChart data={data} margin={{ top: 8, right: 20, left: leftMargin ?? 10, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} opacity={0.3} />
+            <XAxis dataKey={nameKey} tick={axisTick10} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
             <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+            <Tooltip
+              contentStyle={tooltipStyleResolved}
+              formatter={(v, name) => [tipFmt(Number(v)), String(name)]}
+              labelFormatter={xTickFormatter}
+            />
             {series.length > 1 && (
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: legendColor }} />
             )}
             {series.map((s, i) => (
               <Line
@@ -229,7 +305,7 @@ export function FlexChart({
           bottom: 8,
         }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} opacity={0.3} />
         {isHorizontal ? (
           <>
             <XAxis
@@ -251,13 +327,17 @@ export function FlexChart({
           </>
         ) : (
           <>
-            <XAxis dataKey={nameKey} tick={axisTick11} tickLine={false} axisLine={false} />
+            <XAxis dataKey={nameKey} tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
             <YAxis tick={axisTick11} tickLine={false} axisLine={false} tickFormatter={formatter} />
           </>
         )}
-        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [tipFmt(Number(v)), String(name)]} />
+        <Tooltip
+          contentStyle={tooltipStyleResolved}
+          formatter={(v, name) => [tipFmt(Number(v)), String(name)]}
+          labelFormatter={xTickFormatter}
+        />
         {series.length > 1 && (
-          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: "var(--foreground)" }} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: legendColor }} />
         )}
         {series.map((s, i) => (
           <Bar
@@ -276,7 +356,13 @@ export function FlexChart({
                     key={idx}
                     fill={colorForObjectTypeLabel(String(d[nameKey]))}
                     opacity={cellOpacity(d[nameKey], highlightValue)}
-                    stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
+                    stroke={
+                      String(d[nameKey]) === highlightValue
+                        ? emailExportSafe
+                          ? EXPORT_SAFE_FOREGROUND
+                          : "var(--foreground)"
+                        : undefined
+                    }
                     strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
                   />
                 ))
@@ -285,7 +371,13 @@ export function FlexChart({
                     key={idx}
                     fill={s.color || COLORS[i]}
                     opacity={cellOpacity(d[nameKey], highlightValue)}
-                    stroke={String(d[nameKey]) === highlightValue ? "var(--foreground)" : undefined}
+                    stroke={
+                      String(d[nameKey]) === highlightValue
+                        ? emailExportSafe
+                          ? EXPORT_SAFE_FOREGROUND
+                          : "var(--foreground)"
+                        : undefined
+                    }
                     strokeWidth={String(d[nameKey]) === highlightValue ? 2 : 0}
                   />
                 ))}
@@ -301,6 +393,7 @@ export function FlexChart({
                     value={props.value as number | undefined}
                     isHorizontalBar={isHorizontal}
                     formatLabel={formatter}
+                    exportSafe={emailExportSafe}
                   />
                 )}
               />

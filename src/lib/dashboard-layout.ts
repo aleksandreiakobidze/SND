@@ -4,7 +4,10 @@ import type { ChartNumberStyle } from "@/lib/chart-number-format";
 import {
   RECENT_TRANSACTIONS_COLUMN_IDS,
   type RecentTransactionsColumnId,
+  type RecentTxValueDef,
+  normalizeValueDefs,
   isRecentTransactionsColumnId,
+  isRecentTxValueEligible,
   isRecentTxMeasureColumnId,
 } from "@/lib/recent-transactions-columns";
 
@@ -51,6 +54,8 @@ export type RecentTransactionsMatrixPrefs = {
   rowIds: RecentTransactionsColumnId[];
   columnIds: RecentTransactionsColumnId[];
   valueIds: RecentTransactionsColumnId[];
+  /** Aggregation config for each valueId (backward-compatible; falls back to defaults). */
+  valueDefs?: RecentTxValueDef[];
 };
 
 export type RecentTransactionsLayoutPrefs = {
@@ -66,7 +71,12 @@ export function getDefaultMatrixPrefs(): RecentTransactionsMatrixPrefs {
     rowIds: ["region", "brand"],
     columnIds: ["month"],
     valueIds: ["liter"],
+    valueDefs: [{ valueId: "liter", aggregation: "sum" }],
   };
+}
+
+export function getMatrixValueDefs(matrix: RecentTransactionsMatrixPrefs): RecentTxValueDef[] {
+  return normalizeValueDefs(matrix.valueIds, matrix.valueDefs);
 }
 
 /** Global chart UI preferences for the home dashboard (data labels, number style). */
@@ -179,6 +189,9 @@ function getMatrixPrefsValidationError(m: unknown): string | null {
   if (!Array.isArray(x.rowIds)) return "recentTransactions.matrix.rowIds must be an array";
   if (!Array.isArray(x.columnIds)) return "recentTransactions.matrix.columnIds must be an array";
   if (!Array.isArray(x.valueIds)) return "recentTransactions.matrix.valueIds must be an array";
+  if (x.valueDefs !== undefined && !Array.isArray(x.valueDefs)) {
+    return "recentTransactions.matrix.valueDefs must be an array";
+  }
   const rowIds = x.rowIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
   const columnIds = x.columnIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
   const valueIds = x.valueIds.filter((id): id is RecentTransactionsColumnId => typeof id === "string" && isRecentTransactionsColumnId(id));
@@ -188,6 +201,18 @@ function getMatrixPrefsValidationError(m: unknown): string | null {
   if (new Set(rowIds).size !== rowIds.length) return "recentTransactions.matrix.rowIds must not duplicate";
   if (new Set(columnIds).size !== columnIds.length) return "recentTransactions.matrix.columnIds must not duplicate";
   if (new Set(valueIds).size !== valueIds.length) return "recentTransactions.matrix.valueIds must not duplicate";
+  if (Array.isArray(x.valueDefs)) {
+    for (const d of x.valueDefs) {
+      if (!d || typeof d !== "object") return "recentTransactions.matrix.valueDefs has invalid item";
+      const vd = d as Record<string, unknown>;
+      if (typeof vd.valueId !== "string" || !isRecentTransactionsColumnId(vd.valueId)) {
+        return "recentTransactions.matrix.valueDefs.valueId has invalid id";
+      }
+      if (typeof vd.aggregation !== "string") {
+        return "recentTransactions.matrix.valueDefs.aggregation must be string";
+      }
+    }
+  }
   for (const id of rowIds) {
     if (isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: row fields must be dimensions";
   }
@@ -195,7 +220,7 @@ function getMatrixPrefsValidationError(m: unknown): string | null {
     if (isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: column fields must be dimensions";
   }
   for (const id of valueIds) {
-    if (!isRecentTxMeasureColumnId(id)) return "recentTransactions.matrix: value fields must be measures";
+    if (!isRecentTxValueEligible(id)) return "recentTransactions.matrix: value fields must be value-eligible";
   }
   const all = new Set<RecentTransactionsColumnId>();
   for (const id of rowIds) {
@@ -377,7 +402,7 @@ function sanitizeMatrixFromRemote(
     ids.filter((id) => catalog.has(id) && isRecentTransactionsColumnId(id));
   let rowIds = strip(m.rowIds).filter((id) => !isRecentTxMeasureColumnId(id));
   let columnIds = strip(m.columnIds).filter((id) => !isRecentTxMeasureColumnId(id));
-  let valueIds = strip(m.valueIds).filter((id) => isRecentTxMeasureColumnId(id));
+  let valueIds = strip(m.valueIds).filter((id) => isRecentTxValueEligible(id));
   const seen = new Set<RecentTransactionsColumnId>();
   rowIds = rowIds.filter((id) => {
     if (seen.has(id)) return false;
@@ -395,7 +420,12 @@ function sanitizeMatrixFromRemote(
     return true;
   });
   if (valueIds.length < 1) return { ...fallback };
-  return { rowIds, columnIds, valueIds };
+  return {
+    rowIds,
+    columnIds,
+    valueIds,
+    valueDefs: normalizeValueDefs(valueIds, m.valueDefs),
+  };
 }
 
 function mergeChartPrefs(remote: ChartPrefs | undefined, fallback: ChartPrefs): ChartPrefs {

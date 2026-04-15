@@ -7,6 +7,50 @@ export const VIEW_NAME = "RealViewAgent";
  */
 export const ONLINE_VIEW_NAME = "OnlineRealViewAgent";
 
+export type CanonicalDimensionMeta = {
+  type: "dimension";
+  field: string;
+  label: string;
+  synonyms: string[];
+};
+
+export const CANONICAL_DIMENSIONS: Record<string, CanonicalDimensionMeta> = {
+  brand: {
+    type: "dimension",
+    field: "ProdT",
+    label: "Brand",
+    synonyms: ["brand", "brands", "prodt"],
+  },
+  customer: {
+    type: "dimension",
+    field: "Org",
+    label: "Customer",
+    synonyms: ["customer", "customers", "organization", "org", "client"],
+  },
+  route: {
+    type: "dimension",
+    field: "Qseli",
+    label: "Route",
+    synonyms: ["route", "routes", "qseli", "channel", "network"],
+  },
+};
+
+export function getCanonicalDimensionKey(raw: string): string | null {
+  const token = raw.trim().toLowerCase();
+  if (!token) return null;
+  for (const [key, meta] of Object.entries(CANONICAL_DIMENSIONS)) {
+    if (key === token) return key;
+    if (meta.synonyms.some((s) => s.toLowerCase() === token)) return key;
+  }
+  return null;
+}
+
+export function getCanonicalDimensionMeta(raw: string): CanonicalDimensionMeta | null {
+  const key = getCanonicalDimensionKey(raw);
+  if (!key) return null;
+  return CANONICAL_DIMENSIONS[key] ?? null;
+}
+
 /**
  * Tells the model when to use RealViewAgent vs OnlineRealViewAgent (must appear before per-view schemas).
  */
@@ -268,7 +312,6 @@ You must respond with valid JSON in this exact format:
   "narrative": "A brief 2-3 sentence analysis of what the data shows, written in ${lang}. Include key insights. If the SQL uses a **rolling relative window** (e.g. last N days including today), describe that scope in words — e.g. \"the last 7 days\" / \"ბოლო 7 დღე\" — and **do not** state invented or stale calendar from–to dates. Only give explicit dates when the query filters a **fixed** range the user asked for.",
   "suggestedQuestions": ["Follow-up question in ${lang} 1", "Follow-up question in ${lang} 2", "Follow-up question in ${lang} 3"]
 }
-
 LANGUAGE RULE: The "narrative", "suggestedQuestions", and chart "title" MUST be written in ${lang}. SQL column aliases should always be in English for consistency. Chart "title" must match the query scope: for rolling \"last N days\" filters, use relative wording in the title (same as narrative), not a fixed date span.
 
 Chart type guidance:
@@ -280,5 +323,33 @@ Chart type guidance:
 - "number": For single aggregate values (total revenue, count, average).
 
 Always make column aliases short and readable English names.
+`;
+}
+
+export function getMinOrderAmountInterpretationBlock(): string {
+  return `
+## MinOrderAmount field semantics (strict)
+
+Treat MinOrderAmount as a numeric threshold field.
+
+- It can be requested as an output column (SELECT) and/or used in filters (WHERE).
+- Do not conflate "show/include/add MinOrderAmount" with filtering.
+- If user asks to show/add/include the field, include MinOrderAmount in SELECT.
+- If user asks to filter by the field, apply WHERE predicates.
+
+Supported filter operators:
+- IS NULL, IS NOT NULL
+- >, >=, <, <=, =, <>
+
+Business language mapping:
+- "exists", "filled", "not empty", "configured" -> MinOrderAmount IS NOT NULL
+- "empty", "null", "without minimum order amount" -> MinOrderAmount IS NULL
+- "above/more than N" -> MinOrderAmount > N
+- "at least N" -> MinOrderAmount >= N
+- "below/under N" -> MinOrderAmount < N
+
+Never generate text-style predicates for this field:
+- wrong: MinOrderAmount = 'filled'
+- wrong: MinOrderAmount LIKE '%250%'
 `;
 }

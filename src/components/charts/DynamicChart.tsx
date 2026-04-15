@@ -20,6 +20,7 @@ import {
 import type { ChartConfig } from "@/types";
 import { firstNonTechnicalColumnKey, isTechnicalIdColumnKey, numericMeasureKeys } from "@/lib/technical-columns";
 import { colorForObjectTypeLabel } from "@/lib/map-object-type-colors";
+import { formatDateLikeLabel } from "@/lib/coordinate-format";
 
 const COLORS = [
   "hsl(220, 70%, 55%)",
@@ -54,6 +55,7 @@ interface Props {
 export function DynamicChart({ data, config }: Props) {
   const xKey = config.xKey || (data[0] ? firstNonTechnicalColumnKey(data[0]) : "name");
   const yKeys = config.yKeys || (data[0] ? numericMeasureKeys(data[0], xKey) : []);
+  const xTickFormatter = (v: unknown) => formatDateLikeLabel(v);
 
   if (config.type === "number") {
     const row = data[0];
@@ -103,9 +105,13 @@ export function DynamicChart({ data, config }: Props) {
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />
+          <Tooltip
+            contentStyle={tooltipStyle}
+            formatter={(v) => [formatValue(Number(v))]}
+            labelFormatter={xTickFormatter}
+          />
           <Legend iconType="circle" iconSize={8} />
           {yKeys.map((key, i) => (
             <Line key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={false} />
@@ -120,9 +126,13 @@ export function DynamicChart({ data, config }: Props) {
       <ResponsiveContainer width="100%" height={320}>
         <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />
+          <Tooltip
+            contentStyle={tooltipStyle}
+            formatter={(v) => [formatValue(Number(v))]}
+            labelFormatter={xTickFormatter}
+          />
           {yKeys.map((key, i) => (
             <Area key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]} fill={COLORS[i % COLORS.length]} fillOpacity={0.15} strokeWidth={2} />
           ))}
@@ -135,9 +145,13 @@ export function DynamicChart({ data, config }: Props) {
     <ResponsiveContainer width="100%" height={320}>
       <BarChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-        <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+        <XAxis dataKey={xKey} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={xTickFormatter} />
         <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatValue} />
-        <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatValue(Number(v))]} />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          formatter={(v) => [formatValue(Number(v))]}
+          labelFormatter={xTickFormatter}
+        />
         <Legend iconType="circle" iconSize={8} />
         {yKeys.map((key, i) => (
           <Bar key={key} dataKey={key} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={50} />

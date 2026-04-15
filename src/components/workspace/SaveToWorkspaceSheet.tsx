@@ -139,9 +139,10 @@ export function SaveToWorkspaceSheet({ open, onOpenChange, payload, onSaved }: P
           narrative: payload.narrative ?? null,
         }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as { error?: string; details?: string };
       if (!res.ok) {
-        setError(json.error || json.details || t("error"));
+        console.error("save report failed", res.status, json);
+        setError([json.error, json.details].filter(Boolean).join(": ") || t("error"));
         return;
       }
       onSaved?.();

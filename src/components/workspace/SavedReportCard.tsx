@@ -96,13 +96,12 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
     chartConfig && data && data.length > 0 && chartConfig.type !== "table" && chartConfig.type !== "number",
   );
   const comparison = chartConfig?.comparison;
-  const matrixView = useAgentMatrixModel(chartConfig, data ?? undefined);
-  const showMatrix = Boolean(matrixView);
-
   const flatTableData = useMemo(
     () => comparison?.longData ?? data ?? [],
     [comparison?.longData, data],
   );
+  const matrixView = useAgentMatrixModel(chartConfig, flatTableData);
+  const showMatrix = Boolean(matrixView);
 
   const toolbarRowCountBadge = useMemo(
     () =>
@@ -265,6 +264,13 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
     () => resolveMeasureDisplay(chartConfig, data ?? undefined),
     [chartConfig, data],
   );
+  const matrixCountLike = useMemo(
+    () =>
+      /count|distinct|quantity|qty|units|customers?|orders?|organizations?|org/i.test(
+        matrixView?.measureLabel ?? chartConfig?.comparison?.measure ?? "",
+      ),
+    [matrixView?.measureLabel, chartConfig?.comparison?.measure],
+  );
   const chartAxisFormatter = useMemo(() => {
     if (measureResolved === "liters") return formatLitersCompact;
     if (measureResolved === "quantity" || measureResolved === "mixed") return formatNumberCompact;
@@ -278,10 +284,11 @@ export function SavedReportCard({ report, onDeleted, onTitleUpdated, canEdit = t
     return formatCurrencyFull;
   }, [measureResolved]);
   const matrixCellFormatter = useMemo(() => {
+    if (matrixCountLike) return formatNumberCompact;
     if (measureResolved === "liters") return formatLitersCompact;
     if (measureResolved === "quantity" || measureResolved === "mixed") return formatNumberCompact;
     return defaultChartValueFormat;
-  }, [measureResolved]);
+  }, [measureResolved, matrixCountLike]);
 
   useEffect(() => {
     setChartVariant(null);

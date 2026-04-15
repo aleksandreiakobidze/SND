@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Bot,
   User,
@@ -46,6 +46,8 @@ import { coercePageSize } from "@/lib/report-pagination-presets";
 import { ComparisonMatrixTable } from "@/components/agent/ComparisonMatrixTable";
 import { downloadExcelFromRows } from "@/lib/export-excel";
 import { useAgentMatrixModel } from "@/hooks/use-agent-matrix-model";
+import type { AgentReportView } from "@/lib/agent-report-view";
+import { captureElementToPngBase64 } from "@/lib/chart-capture-to-png";
 
 const VARIANT_ICON: Record<ChartVariant, React.ElementType> = {
   bar: BarChart,
@@ -70,16 +72,26 @@ function configToFlexProps(config: ChartConfig, data: Record<string, unknown>[])
 interface ChatMessageProps {
   message: AgentMessage;
   onSaveToWorkspace?: (message: AgentMessage) => void;
+  /** Fired when Chart / Matrix / Flat tab changes (assistant report rows only). */
+  onReportViewChange?: (messageId: string, view: AgentReportView) => void;
+  /** Register a PNG capture fn for email; parent calls it for this message id. */
+  registerChartCapture?: (messageId: string, fn: (() => Promise<string | null>) | null) => void;
 }
 
-export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  onSaveToWorkspace,
+  onReportViewChange,
+  registerChartCapture,
+}: ChatMessageProps) {
   const { t } = useLocale();
   const [showSQL, setShowSQL] = useState(false);
   const [chartVariant, setChartVariant] = useState<ChartVariant | null>(null);
   const isUser = message.role === "user";
 
   const comparison = message.chartConfig?.comparison;
-  const matrixView = useAgentMatrixModel(message.chartConfig, message.data);
+  const flatTableData = comparison?.longData ?? message.data ?? [];
+  const matrixView = useAgentMatrixModel(message.chartConfig, flatTableData);
   const hasData = Boolean(message.data && message.data.length > 0);
   const hasChart = Boolean(
     message.chartConfig &&
@@ -96,6 +108,20 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
   const [matrixPageIndex, setMatrixPageIndex] = useState(0);
   const [exportingMatrix, setExportingMatrix] = useState(false);
 
+  const chartCaptureVisibleRef = useRef<HTMLDivElement>(null);
+  const chartCaptureHiddenRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Prefer the visible chart when user is on Chart tab (fully painted + correct layout).
+   * Otherwise use the email-safe off-screen clone (still in-viewport so Recharts gets width).
+   */
+  const captureFn = useCallback(async () => {
+    if (!hasChart) return null;
+    const target =
+      dataView === "chart" ? chartCaptureVisibleRef.current : chartCaptureHiddenRef.current;
+    return captureElementToPngBase64(target);
+  }, [hasChart, dataView]);
+
   useEffect(() => {
     setMatrixPageIndex(0);
   }, [message.id]);
@@ -106,6 +132,24 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
     const pc = Math.max(1, Math.ceil(n / reportPageSize));
     setMatrixPageIndex((i) => Math.min(i, pc - 1));
   }, [matrixView, message.data, reportPageSize]);
+
+  useEffect(() => {
+    if (!onReportViewChange || message.loading || isUser) return;
+    if (!hasData || message.chartConfig?.type === "number") return;
+    onReportViewChange(message.id, dataView);
+  }, [message.id, message.loading, isUser, hasData, message.chartConfig?.type, dataView, onReportViewChange]);
+
+  useEffect(() => {
+    if (!registerChartCapture) return;
+    if (message.loading || isUser || !hasChart) {
+      registerChartCapture(message.id, null);
+      return;
+    }
+    registerChartCapture(message.id, captureFn);
+    return () => {
+      registerChartCapture(message.id, null);
+    };
+  }, [message.id, message.loading, isUser, hasChart, captureFn, registerChartCapture]);
 
   if (message.loading) {
     return (
@@ -148,8 +192,6 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
     : [];
   const activeVariant = chartVariant || (variants[0] ?? "bar");
 
-  const flatTableData = comparison?.longData ?? message.data ?? [];
-
   const toolbarRowCountBadge =
     dataView === "matrix" && matrixView
       ? matrixView.model.rowLabels.length
@@ -165,6 +207,9 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
       : true;
 
   const measureResolved = resolveMeasureDisplay(message.chartConfig, message.data);
+  const matrixCountLike = /count|distinct|quantity|qty|units|customers?|orders?|organizations?|org/i.test(
+    matrixView?.measureLabel ?? message.chartConfig?.comparison?.measure ?? "",
+  );
   const chartAxisFormatter =
     measureResolved === "liters"
       ? formatLitersCompact
@@ -181,7 +226,9 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
               : ""
         : formatCurrencyFull;
   const matrixCellFormatter =
-    measureResolved === "liters"
+    matrixCountLike
+      ? formatNumberCompact
+      : measureResolved === "liters"
       ? formatLitersCompact
       : measureResolved === "quantity" || measureResolved === "mixed"
         ? formatNumberCompact
@@ -328,16 +375,22 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                 (() => {
                   const { nameKey, valueKeys } = configToFlexProps(message.chartConfig, message.data!);
                   return (
-                    <FlexChart
-                      data={message.data!}
-                      variant={activeVariant}
-                      nameKey={nameKey}
-                      valueKeys={valueKeys}
-                      height={320}
-                      formatter={chartAxisFormatter}
-                      tooltipFormatter={chartTooltipFormatter}
-                      showDataLabels={showDataLabelsComputed}
-                    />
+                    <div
+                      ref={chartCaptureVisibleRef}
+                      className="agent-chart-light-surface w-full min-w-0 rounded-md bg-white p-1"
+                    >
+                      <FlexChart
+                        data={message.data!}
+                        variant={activeVariant}
+                        nameKey={nameKey}
+                        valueKeys={valueKeys}
+                        height={320}
+                        formatter={chartAxisFormatter}
+                        tooltipFormatter={chartTooltipFormatter}
+                        showDataLabels={showDataLabelsComputed}
+                        emailExportSafe
+                      />
+                    </div>
                   );
                 })()
               ) : dataView === "matrix" && matrixView ? (
@@ -363,6 +416,31 @@ export function ChatMessage({ message, onSaveToWorkspace }: ChatMessageProps) {
                 />
               )}
             </Card>
+
+            {hasChart && message.chartConfig ? (
+              <div
+                ref={chartCaptureHiddenRef}
+                className="agent-chart-light-surface pointer-events-none fixed left-0 top-0 z-[-30] w-[800px] min-h-[360px] max-w-[800px] opacity-[0.015] bg-white p-4 text-slate-900"
+                aria-hidden
+              >
+                {(() => {
+                  const { nameKey, valueKeys } = configToFlexProps(message.chartConfig!, message.data!);
+                  return (
+                    <FlexChart
+                      data={message.data!}
+                      variant={activeVariant}
+                      nameKey={nameKey}
+                      valueKeys={valueKeys}
+                      height={320}
+                      formatter={chartAxisFormatter}
+                      tooltipFormatter={chartTooltipFormatter}
+                      showDataLabels={showDataLabelsComputed}
+                      emailExportSafe
+                    />
+                  );
+                })()}
+              </div>
+            ) : null}
           </div>
         )}
 

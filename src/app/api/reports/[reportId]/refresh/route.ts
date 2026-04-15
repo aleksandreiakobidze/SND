@@ -72,10 +72,16 @@ export async function POST(_req: Request, ctx: { params: Promise<Params> }) {
 
     const ct = chartTypeFromConfig(chartConfig);
     if (ct) {
-      await updateSavedReportChartType(auth.ctx.user.id, reportId, ct);
+      try {
+        await updateSavedReportChartType(auth.ctx.user.id, reportId, ct);
+      } catch (err) {
+        console.error("updateSavedReportChartType (non-fatal)", err);
+      }
     }
 
     return NextResponse.json({
+      sql: report.sqlText,
+      metricIntentKind: metricIntent.kind,
       data: processed.data,
       chartConfig,
       narrative: report.narrative,

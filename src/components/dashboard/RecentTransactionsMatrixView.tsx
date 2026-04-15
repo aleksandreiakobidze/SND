@@ -12,6 +12,7 @@ import {
 import {
   RECENT_TX_COLUMN_LABEL_KEY,
   RECENT_TX_ID_TO_ROW_KEY,
+  recentTxDisplayMetaForRowKey,
   type RecentTransactionsColumnId,
 } from "@/lib/recent-transactions-columns";
 import {
@@ -33,7 +34,7 @@ type Props = {
 };
 
 export function RecentTransactionsMatrixView({ model, t }: Props) {
-  const { rowIds, colKeys, colLabels, valueIds, displayRows } = model;
+  const { rowIds, colKeys, colLabels, valueIds, valueDefs, displayRows } = model;
   const rowDimCount = rowIds.length;
   /** Second header row lists measure name(s) so a single value (e.g. Liters) is always visible. */
   const showValueHeaderRow = colKeys.length > 0 && valueIds.length >= 1;
@@ -49,13 +50,13 @@ export function RecentTransactionsMatrixView({ model, t }: Props) {
               <TableHead
                 key={id}
                 rowSpan={headerRows}
-                className="sticky left-0 z-[2] min-w-[6.5rem] border-r bg-muted/95 backdrop-blur-sm"
+                className="sticky left-0 top-0 z-[4] min-w-[6.5rem] border-r bg-muted/95 backdrop-blur-sm"
               >
                 {t(RECENT_TX_COLUMN_LABEL_KEY[id])}
               </TableHead>
             ))}
             {colKeys.length === 0 ? (
-              <TableHead colSpan={Math.max(1, valueIds.length)} className="text-center text-xs font-semibold">
+              <TableHead colSpan={Math.max(1, valueIds.length)} className="sticky top-0 z-[3] bg-muted/95 text-center text-xs font-semibold backdrop-blur-sm">
                 {t("rtMatrixGrand")}
               </TableHead>
             ) : (
@@ -63,14 +64,14 @@ export function RecentTransactionsMatrixView({ model, t }: Props) {
                 <TableHead
                   key={ck}
                   colSpan={valueIds.length}
-                  className="border-l text-center text-xs font-semibold"
+                  className="sticky top-0 z-[3] border-l bg-muted/95 text-center text-xs font-semibold backdrop-blur-sm"
                 >
                   {colLabels.get(ck) ?? ck}
                 </TableHead>
               ))
             )}
             {showRowTotals ? (
-              <TableHead rowSpan={headerRows} className="sticky right-0 z-[2] min-w-[5rem] border-l bg-muted/95 text-center text-xs font-semibold backdrop-blur-sm">
+              <TableHead rowSpan={headerRows} className="sticky right-0 top-0 z-[4] min-w-[5rem] border-l bg-muted/95 text-center text-xs font-semibold backdrop-blur-sm">
                 {t("rtRowTotal")}
               </TableHead>
             ) : null}
@@ -79,7 +80,10 @@ export function RecentTransactionsMatrixView({ model, t }: Props) {
             <TableRow className="bg-muted/40 hover:bg-muted/40">
               {colKeys.flatMap((ck) =>
                 valueIds.map((vid) => (
-                  <TableHead key={`${ck}-${vid}`} className="border-l px-1.5 py-1 text-center text-[10px] font-medium text-muted-foreground">
+                  <TableHead
+                    key={`${ck}-${vid}`}
+                    className="sticky top-[32px] z-[2] border-l bg-muted/90 px-1.5 py-1 text-center text-[10px] font-medium text-muted-foreground backdrop-blur-sm"
+                  >
                     {t(RECENT_TX_COLUMN_LABEL_KEY[vid])}
                   </TableHead>
                 )),
@@ -89,7 +93,7 @@ export function RecentTransactionsMatrixView({ model, t }: Props) {
         </TableHeader>
         <TableBody>
           {displayRows.map((dr, idx) => (
-            <MatrixRow key={`${dr.kind}-${idx}`} dr={dr} model={model} rowDimCount={rowDimCount} colKeys={colKeys} valueIds={valueIds} showRowTotals={showRowTotals} t={t} />
+            <MatrixRow key={`${dr.kind}-${idx}`} dr={dr} model={model} rowDimCount={rowDimCount} colKeys={colKeys} valueIds={valueIds} valueDefs={valueDefs} showRowTotals={showRowTotals} t={t} />
           ))}
         </TableBody>
         <TableFooter>
@@ -98,8 +102,8 @@ export function RecentTransactionsMatrixView({ model, t }: Props) {
               {t("tableTotal")}
             </TableCell>
             {colKeys.length === 0
-              ? valueIds.map((vid) => <FooterMeasureCell key={vid} model={model} colKey={null} vid={vid} valueIds={valueIds} />)
-              : colKeys.flatMap((ck) => valueIds.map((vid) => <FooterMeasureCell key={`${ck}-${vid}`} model={model} colKey={ck} vid={vid} valueIds={valueIds} />))}
+              ? valueIds.map((vid) => <FooterMeasureCell key={vid} model={model} colKey={null} vid={vid} valueDefs={valueDefs} />)
+              : colKeys.flatMap((ck) => valueIds.map((vid) => <FooterMeasureCell key={`${ck}-${vid}`} model={model} colKey={ck} vid={vid} valueDefs={valueDefs} />))}
             {showRowTotals ? (
               <TableCell className="sticky right-0 z-[1] border-l bg-muted/90 text-right font-semibold backdrop-blur-sm tabular-nums">
                 <GrandTotalSingleValue model={model} valueIds={valueIds} />
@@ -116,20 +120,20 @@ function FooterMeasureCell({
   model,
   colKey,
   vid,
-  valueIds,
+  valueDefs,
 }: {
   model: PivotModel;
   colKey: string | null;
   vid: RecentTransactionsColumnId;
-  valueIds: RecentTransactionsColumnId[];
+  valueDefs: PivotModel["valueDefs"];
 }) {
   const a = colKey === null ? grandTotalAcc(model) : sumAccColAllRows(model, colKey);
-  const vals = accToValues(a, valueIds);
+  const vals = accToValues(a, valueDefs);
   const v = vals[vid];
   const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
   return (
     <TableCell className="border-l text-right tabular-nums">
-      {v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—"}
+      {v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—"}
     </TableCell>
   );
 }
@@ -137,11 +141,11 @@ function FooterMeasureCell({
 function GrandTotalSingleValue({ model, valueIds }: { model: PivotModel; valueIds: RecentTransactionsColumnId[] }) {
   if (valueIds.length !== 1) return "—";
   const g = grandTotalAcc(model);
-  const vals = accToValues(g, valueIds);
+  const vals = accToValues(g, model.valueDefs);
   const vid = valueIds[0];
   const v = vals[vid];
   const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
-  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—";
+  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—";
 }
 
 function MatrixRow({
@@ -150,6 +154,7 @@ function MatrixRow({
   rowDimCount,
   colKeys,
   valueIds,
+  valueDefs,
   showRowTotals,
   t,
 }: {
@@ -158,6 +163,7 @@ function MatrixRow({
   rowDimCount: number;
   colKeys: string[];
   valueIds: RecentTransactionsColumnId[];
+  valueDefs: PivotModel["valueDefs"];
   showRowTotals: boolean;
   t: (key: TranslationKey) => string;
 }) {
@@ -170,24 +176,24 @@ function MatrixRow({
         </TableCell>
         {colKeys.length === 0
           ? valueIds.map((vid) => {
-              const vals = accToValues(accAll, valueIds);
+              const vals = accToValues(accAll, valueDefs);
               const v = vals[vid];
               const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
               return (
                 <TableCell key={vid} className="border-l text-right text-sm tabular-nums">
-                  {v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—"}
+                  {v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—"}
                 </TableCell>
               );
             })
           : colKeys.flatMap((ck) => {
               const accCol = sumAccColForPrefix(model, dr.label, ck);
               return valueIds.map((vid) => {
-                const vals = accToValues(accCol, valueIds);
+                const vals = accToValues(accCol, valueDefs);
                 const v = vals[vid];
                 const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
                 return (
                   <TableCell key={`${ck}-${vid}`} className="border-l text-right text-sm tabular-nums">
-                    {v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—"}
+                    {v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—"}
                   </TableCell>
                 );
               });
@@ -209,7 +215,7 @@ function MatrixRow({
         const rkLabel = colId ? RECENT_TX_ID_TO_ROW_KEY[colId] : "";
         return (
           <TableCell key={i} className="sticky left-0 z-[1] min-w-[6.5rem] border-r bg-background/95 text-sm backdrop-blur-sm">
-            {formatTableCellDisplay(v, rkLabel)}
+            {formatTableCellDisplay(v, rkLabel, recentTxDisplayMetaForRowKey(rkLabel))}
           </TableCell>
         );
       })}
@@ -217,25 +223,25 @@ function MatrixRow({
         ? valueIds.map((vid) => {
             const rowMap = model.cells.get(rk);
             const a = rowMap?.get("\u0000") ?? null;
-            const vals = a ? accToValues(a, valueIds) : null;
+            const vals = a ? accToValues(a, valueDefs) : null;
             const v = vals?.[vid];
             const rkKey = RECENT_TX_ID_TO_ROW_KEY[vid];
             return (
               <TableCell key={vid} className="border-l text-right tabular-nums">
-                {v !== null && v !== undefined ? formatTableCellDisplay(v, rkKey) : "—"}
+                {v !== null && v !== undefined ? formatTableCellDisplay(v, rkKey, recentTxDisplayMetaForRowKey(rkKey)) : "—"}
               </TableCell>
             );
           })
         : colKeys.flatMap((ck) => {
             const rowMap = model.cells.get(rk);
             const a = rowMap?.get(ck) ?? null;
-            const vals = a ? accToValues(a, valueIds) : null;
+            const vals = a ? accToValues(a, valueDefs) : null;
             return valueIds.map((vid) => {
               const v = vals?.[vid];
               const rkKey = RECENT_TX_ID_TO_ROW_KEY[vid];
               return (
                 <TableCell key={`${ck}-${vid}`} className="border-l text-right tabular-nums">
-                  {v !== null && v !== undefined ? formatTableCellDisplay(v, rkKey) : "—"}
+                  {v !== null && v !== undefined ? formatTableCellDisplay(v, rkKey, recentTxDisplayMetaForRowKey(rkKey)) : "—"}
                 </TableCell>
               );
             });
@@ -252,11 +258,11 @@ function MatrixRow({
 function RowTotalSingle({ model, rowKey, valueIds }: { model: PivotModel; rowKey: string; valueIds: RecentTransactionsColumnId[] }) {
   if (valueIds.length !== 1) return "—";
   const rt = sumAccRowAllCols(model, rowKey);
-  const vals = accToValues(rt, valueIds);
+  const vals = accToValues(rt, model.valueDefs);
   const vid = valueIds[0];
   const v = vals[vid];
   const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
-  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—";
+  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—";
 }
 
 function SubtotalRowTotal({
@@ -270,9 +276,9 @@ function SubtotalRowTotal({
 }) {
   if (valueIds.length !== 1) return "—";
   const acc = sumAccForFirstDimPrefix(model, label);
-  const vals = accToValues(acc, valueIds);
+  const vals = accToValues(acc, model.valueDefs);
   const vid = valueIds[0];
   const v = vals[vid];
   const rk = RECENT_TX_ID_TO_ROW_KEY[vid];
-  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk) : "—";
+  return v !== null && v !== undefined ? formatTableCellDisplay(v, rk, recentTxDisplayMetaForRowKey(rk)) : "—";
 }

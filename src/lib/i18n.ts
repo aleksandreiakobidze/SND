@@ -162,12 +162,14 @@ export const translations = {
     rtColItemCategory: "Item category",
     rtColBrand: "Brand",
     rtColSaleType: "Sale type",
+    rtColDocumentNo: "Document no",
     rtColItemCode: "Item code",
     rtColItem: "Item",
     rtColQty: "Qty",
     rtColLiter: "Liters",
     rtColPrice: "Price",
     rtColAmount: "Amount",
+    rtColDistinctCustomers: "Distinct customers",
     rtColPreseller: "Preseller",
     rtColManager: "Manager",
     rtColSupervisor: "Supervisor",
@@ -181,6 +183,13 @@ export const translations = {
     rtDropRows: "Rows",
     rtDropColumns: "Columns (pivot)",
     rtDropValues: "Values",
+    rtAggregation: "Aggregation",
+    rtAggSum: "Sum",
+    rtAggCount: "Count",
+    rtAggDistinctCount: "Distinct count",
+    rtAggAvg: "Average",
+    rtAggMin: "Minimum",
+    rtAggMax: "Maximum",
     rtMatrixGrand: "Σ",
     rtRowTotal: "Row total",
     rtSubtotal: "Subtotal",
@@ -270,6 +279,97 @@ export const translations = {
     matrixGrandTotal: "Grand total",
     matrixColumnTotals: "Totals",
     agentExportMatrix: "Export Excel",
+    agentEmailBodyGreeting: "Hello,",
+    agentEmailBodyMain:
+      "Please find attached the Excel export of your SND agent report (full result set from the server).",
+    agentEmailBodyMainExcelOnly:
+      "Please find attached the full Excel export of your SND agent report (complete result set from the server).",
+    agentEmailBodyMainExcelAndChart:
+      "Please find attached the requested report.\n\nAttachments:\n- Full Excel export of the result set\n- Chart image from the current report view",
+    agentEmailBodyMainFlatTable:
+      "Please find attached the requested report as a flat table Excel export (full result set, same row/column structure as the flat table view).",
+    agentEmailBodyMainMatrix:
+      "Please find attached the requested report as a matrix Excel export (full matrix layout as in the matrix view).",
+    agentEmailBodyMainChartBundleWithImage: "Please find attached the requested report.",
+    agentEmailBodyMainChartBundleExcelOnly:
+      "Please find attached the requested report.\n\nNote: The chart image could not be generated or attached.",
+    agentEmailBodyClosing: "Best regards,",
+    agentEmailBodySignature: "SND Analytics",
+    agentEmailSubjectPrefix: "SND Report — ",
+    agentEmailSubjectFallback: "SND Agent Report Export",
+    agentEmailErrorNoResult:
+      "Run a query first so there is a result to send. Ask a question, then ask to email the export.",
+    agentEmailErrorNoSignedInEmail:
+      "Your account has no email on file. Add an address to your profile or type the recipient in your message.",
+    agentEmailAskAddress:
+      "Which email address should I send the Excel export to? Include it in your message (for example: send to name@company.com).",
+    agentEmailErrorNotConfigured:
+      "Email delivery is not configured on the server. Ask an administrator to set SMTP environment variables.",
+    agentEmailErrorEmpty: "The query returned no rows, so there is nothing to attach.",
+    agentEmailErrorExportEmpty: "The export produced no rows for Excel.",
+    agentEmailErrorMatrixExport:
+      "This result cannot be exported in matrix layout. Switch to flat table or chart view, or change the query.",
+    agentEmailErrorSql: "The query could not be run. Try refreshing your result or asking again.",
+    agentEmailErrorExport: "The Excel file could not be built. Please try again or contact support.",
+    agentEmailErrorSend: "The message could not be sent by email. Check the address and try again.",
+    agentEmailErrorInvalidRecipient: "That email address does not look valid. Check spelling and try again.",
+    agentEmailErrorGeneric: "Something went wrong while sending the email. Please try again.",
+    agentEmailSuccess: "Sent the Excel export to {email}.",
+    agentEmailSuccessExcelOnly: "Sent the full Excel export to {email}.",
+    agentEmailSuccessExcelAndChart: "Sent the full Excel export and chart image to {email}.",
+    agentEmailSuccessFlatOnly: "Sent the full flat-table Excel export to {email}.",
+    agentEmailSuccessMatrixOnly: "Sent the full matrix Excel export to {email}.",
+    agentEmailSuccessMatrixWithChart:
+      "Sent the full matrix Excel export and a chart image to {email}.",
+    agentEmailSuccessChartBundleFull:
+      "Sent the current chart image and Excel workbook with Flat table and Matrix sheets to {email}.",
+    agentEmailSuccessChartBundleExcelNoChart:
+      "Sent the Excel workbook with Flat table and Matrix sheets to {email}. The chart image could not be generated or attached.",
+    agentEmailSuccessFlatSummary:
+      "Sent the full flat-table Excel export to {email} with a short summary in the email body.",
+    agentEmailSuccessMatrixSummary:
+      "Sent the full matrix Excel export to {email} with a short summary in the email body.",
+    agentEmailSuccessMatrixSummaryWithChart:
+      "Sent the full matrix Excel export, a chart image, and a short summary in the email body to {email}.",
+    agentEmailSuccessChartBundleSummaryChart:
+      "Sent the current chart image, Excel workbook with Flat table and Matrix sheets, and a short summary in the email body to {email}.",
+    agentEmailSuccessChartBundleSummaryExcelOnly:
+      "Sent the Excel workbook with Flat table and Matrix sheets and a short summary in the email body to {email}. The chart image could not be attached.",
+    agentEmailSuccessFlatDetailed:
+      "Sent the full flat-table Excel export to {email} with detailed text in the email body.",
+    agentEmailSuccessMatrixDetailed:
+      "Sent the full matrix Excel export to {email} with detailed text in the email body.",
+    agentEmailSuccessMatrixDetailedWithChart:
+      "Sent the full matrix Excel export, a chart image, and detailed text in the email body to {email}.",
+    agentEmailSuccessChartBundleDetailedChart:
+      "Sent the current chart image, Excel workbook with Flat table and Matrix sheets, and detailed text in the email body to {email}.",
+    agentEmailSuccessChartBundleDetailedExcelOnly:
+      "Sent the Excel workbook with Flat table and Matrix sheets and detailed text in the email body to {email}. The chart image could not be attached.",
+    agentEmailSuccessExcelChartFailed:
+      "Sent the Excel workbook with Flat table and Matrix sheets to {email}, but the chart image could not be generated or attached.",
+    agentEmailSuccessChartExportFailedShort:
+      "Sent the export to {email}, but the chart image could not be attached (export was blank or invalid).",
+    agentEmailMetricLiters: "Liters / volume",
+    agentEmailMetricQuantity: "Quantity (units)",
+    agentEmailMetricRevenue: "Revenue (GEL)",
+    agentEmailMetricMixed: "Values",
+    agentEmailBulletRowCount: "{n} rows in the exported result set.",
+    agentEmailBulletTopRow: "Highest {metric} — {category}: {value}.",
+    agentEmailSectionSummary: "Summary",
+    agentEmailSectionAnalysis: "Analysis",
+    agentEmailSectionKeyFindings: "Key findings",
+    agentEmailSectionDataNotes: "Data notes",
+    agentEmailSuccessAttachmentSummary:
+      "Sent the full Excel export to {email} with a short summary in the email body.",
+    agentEmailSuccessAttachmentSummaryChart:
+      "Sent the full Excel export and chart image to {email} with a short summary in the email body.",
+    agentEmailSuccessAttachmentDetailed:
+      "Sent the full Excel export to {email} with detailed text in the email body.",
+    agentEmailSuccessAttachmentDetailedChart:
+      "Sent the full Excel export and chart image to {email} with detailed text in the email body.",
+    agentEmailSuccessBodyFallback:
+      "Sent the export to {email} with attachments only. The requested summary text could not be added to the email body.",
+    agentEmailSuccessCustomBody: "Sent to {email} with your message.",
     exportFullReport: "Export full report",
     exportFullReportTooltip: "Download the complete result set (all rows) for the current query.",
     detailedBreakdown: "Detailed Breakdown",
@@ -561,12 +661,14 @@ export const translations = {
     rtColItemCategory: "ნივთის კატეგორია",
     rtColBrand: "ბრენდი",
     rtColSaleType: "გაყიდვის ტიპი",
+    rtColDocumentNo: "დოკუმენტის ნომერი",
     rtColItemCode: "კოდი",
     rtColItem: "ნივთი",
     rtColQty: "რაოდ.",
     rtColLiter: "ლიტრი",
     rtColPrice: "ფასი",
     rtColAmount: "თანხა",
+    rtColDistinctCustomers: "უნიკალური კლიენტები",
     rtColPreseller: "პრისეილერი",
     rtColManager: "მენეჯერი",
     rtColSupervisor: "სუპერვაიზერი",
@@ -580,6 +682,13 @@ export const translations = {
     rtDropRows: "სტრიქონები",
     rtDropColumns: "სვეტები (პივოტი)",
     rtDropValues: "მნიშვნელობები",
+    rtAggregation: "აგრეგაცია",
+    rtAggSum: "ჯამი",
+    rtAggCount: "რაოდენობა",
+    rtAggDistinctCount: "უნიკალური რაოდენობა",
+    rtAggAvg: "საშუალო",
+    rtAggMin: "მინ",
+    rtAggMax: "მაქს",
     rtMatrixGrand: "Σ",
     rtRowTotal: "სტრიქონის ჯამი",
     rtSubtotal: "ქვეჯამი",
@@ -669,6 +778,97 @@ export const translations = {
     matrixGrandTotal: "სულ ჯამი",
     matrixColumnTotals: "სვეტის ჯამები",
     agentExportMatrix: "Excel ექსპორტი",
+    agentEmailBodyGreeting: "გამარჯობა,",
+    agentEmailBodyMain:
+      "დართულია SND აგენტის რეპორტის Excel ექსპორტი (სრული შედეგი სერვერიდან).",
+    agentEmailBodyMainExcelOnly:
+      "დართულია SND აგენტის რეპორტის სრული Excel ექსპორტი (სრული შედეგი სერვერიდან).",
+    agentEmailBodyMainExcelAndChart:
+      "დართულია მოთხოვნილი რეპორტი.\n\nდანართები:\n- შედეგის სრული Excel ექსპორტი\n- ჩარტის გამოსახულება მიმდინარე რეპორტის ხედიდან",
+    agentEmailBodyMainFlatTable:
+      "დართულია მოთხოვნილი რეპორტი ბრტყელი ცხრილის Excel ფორმატში (სრული შედეგი, იგივე სტრუქტურა როგორც ბრტყელი ცხრილის ხედში).",
+    agentEmailBodyMainMatrix:
+      "დართულია მოთხოვნილი რეპორტი მატრიცის Excel ფორმატში (სრული მატრიცის განლაგება როგორც მატრიცის ხედში).",
+    agentEmailBodyMainChartBundleWithImage: "დართულია მოთხოვნილი რეპორტი.",
+    agentEmailBodyMainChartBundleExcelOnly:
+      "დართულია მოთხოვნილი რეპორტი.\n\nშენიშვნა: ჩარტის სურათის გენერაცია ან დართვა ვერ მოხერხდა.",
+    agentEmailBodyClosing: "პატივისცემით,",
+    agentEmailBodySignature: "SND Analytics",
+    agentEmailSubjectPrefix: "SND რეპორტი — ",
+    agentEmailSubjectFallback: "SND აგენტის რეპორტის ექსპორტი",
+    agentEmailErrorNoResult:
+      "ჯერ გაუშვით მოთხოვნა, რომ იყოს რა გაგზავნოთ. დასვით კითხვა, შემდეგ მოითხოვეთ მეილზე გაგზავნა.",
+    agentEmailErrorNoSignedInEmail:
+      "თქვენს ანგარიშს არ აქვს ელფოსტა. დაამატეთ პროფილში ან მიუთითეთ მისამართი შეტყობინებაში.",
+    agentEmailAskAddress:
+      "რომელ ელფოსტაზე გავაგზავნო Excel ექსპორტი? მიუთითეთ შეტყობინებაში (მაგ.: გაუგზავნე name@company.com).",
+    agentEmailErrorNotConfigured:
+      "ელფოსტის გაგზავნა სერვერზე არ არის კონფიგურირებული. სთხოვეთ ადმინისტრატორს SMTP ცვლადების დაყენება.",
+    agentEmailErrorEmpty: "მოთხოვნამ სტრიქონები არ დააბრუნა — დასართავი არაფერია.",
+    agentEmailErrorExportEmpty: "ექსპორტმა Excel-ისთვის სტრიქონები არ გამოიმუშავა.",
+    agentEmailErrorMatrixExport:
+      "ამ შედეგისთვის მატრიცის ექსპორტი ვერ მზადდება. გადადით ბრტყელ ცხრილზე ან ჩარტზე, ან შეცვალეთ მოთხოვნა.",
+    agentEmailErrorSql: "მოთხოვნის გაშვება ვერ მოხერხდა. განაახლეთ შედეგი ან ხელახლა იკითხეთ.",
+    agentEmailErrorExport: "Excel ფაილის აგება ვერ მოხერხდა. სცადეთ ხელახლა ან დაუკავშირდით მხარდაჭერას.",
+    agentEmailErrorSend: "შეტყობინების გაგზავნა ვერ მოხერხდა. შეამოწმეთ მისამართი და სცადეთ ხელახლა.",
+    agentEmailErrorInvalidRecipient: "ელფოსტის მისამართი არასწორია. შეამოწმეთ და სცადეთ ხელახლა.",
+    agentEmailErrorGeneric: "ელფოსტის გაგზავნისას მოხდა შეცდომა. სცადეთ ხელახლა.",
+    agentEmailSuccess: "Excel ექსპორტი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessExcelOnly: "სრული Excel ექსპორტი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessExcelAndChart: "სრული Excel ექსპორტი და ჩარტის სურათი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessFlatOnly: "სრული ბრტყელი ცხრილის Excel ექსპორტი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessMatrixOnly: "სრული მატრიცის Excel ექსპორტი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessMatrixWithChart:
+      "სრული მატრიცის Excel ექსპორტი და ჩარტის სურათი გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessChartBundleFull:
+      "მიმდინარე ჩარტის სურათი და Excel ფაილი Flat table და Matrix ფურდებით გაიგზავნა მისამართზე {email}.",
+    agentEmailSuccessChartBundleExcelNoChart:
+      "Excel ფაილი Flat table და Matrix ფურდებით გაიგზავნა მისამართზე {email}. ჩარტის სურათის გენერაცია ვერ მოხერხდა.",
+    agentEmailSuccessFlatSummary:
+      "სრული ბრტყელი ცხრილის Excel ექსპორტი და მოკლე შინაარსი წერილის სხეულში გაიგზავნა {email}-ზე.",
+    agentEmailSuccessMatrixSummary:
+      "სრული მატრიცის Excel ექსპორტი და მოკლე შინაარსი წერილის სხეულში გაიგზავნა {email}-ზე.",
+    agentEmailSuccessMatrixSummaryWithChart:
+      "სრული მატრიცის Excel ექსპორტი, ჩარტის სურათი და მოკლე შინაარსი გაიგზავნა {email}-ზე.",
+    agentEmailSuccessChartBundleSummaryChart:
+      "მიმდინარე ჩარტის სურათი, Excel ფაილი Flat table და Matrix ფურდებით და მოკლე შინაარსი გაიგზავნა {email}-ზე.",
+    agentEmailSuccessChartBundleSummaryExcelOnly:
+      "Excel ფაილი Flat table და Matrix ფურდებით და მოკლე შინაარსი გაიგზავნა {email}-ზე. ჩარტის სურათი ვერ დაერთო.",
+    agentEmailSuccessFlatDetailed:
+      "სრული ბრტყელი ცხრილის Excel ექსპორტი და დეტალური ტექსტი წერილის სხეულში გაიგზავნა {email}-ზე.",
+    agentEmailSuccessMatrixDetailed:
+      "სრული მატრიცის Excel ექსპორტი და დეტალური ტექსტი წერილის სხეულში გაიგზავნა {email}-ზე.",
+    agentEmailSuccessMatrixDetailedWithChart:
+      "სრული მატრიცის Excel ექსპორტი, ჩარტის სურათი და დეტალური ტექსტი გაიგზავნა {email}-ზე.",
+    agentEmailSuccessChartBundleDetailedChart:
+      "მიმდინარე ჩარტის სურათი, Excel ფაილი Flat table და Matrix ფურდებით და დეტალური ტექსტი გაიგზავნა {email}-ზე.",
+    agentEmailSuccessChartBundleDetailedExcelOnly:
+      "Excel ფაილი Flat table და Matrix ფურდებით და დეტალური ტექსტი გაიგზავნა {email}-ზე. ჩარტის სურათი ვერ დაერთო.",
+    agentEmailSuccessExcelChartFailed:
+      "Excel ფაილი Flat table და Matrix ფურდებით გაიგზავნა მისამართზე {email}, მაგრამ ჩარტის სურათის გენერაცია ვერ მოხერხდა.",
+    agentEmailSuccessChartExportFailedShort:
+      "ექსპორტი გაიგზავნა {email}-ზე, მაგრამ ჩარტის სურათი ვერ დაერთო (ცარიელი ან არასწორი იყო).",
+    agentEmailMetricLiters: "ლიტრები / მოცულობა",
+    agentEmailMetricQuantity: "რაოდენობა (ერთეული)",
+    agentEmailMetricRevenue: "შემოსავალი (ლარი)",
+    agentEmailMetricMixed: "მაჩვენებლები",
+    agentEmailBulletRowCount: "ექსპორტში {n} სტრიქონია.",
+    agentEmailBulletTopRow: "ყველაზე მაღალი {metric} — {category}: {value}.",
+    agentEmailSectionSummary: "მოკლე შინაარსი",
+    agentEmailSectionAnalysis: "ანალიზი",
+    agentEmailSectionKeyFindings: "ძირითადი დასკვნები",
+    agentEmailSectionDataNotes: "მონაცემების შენიშვნები",
+    agentEmailSuccessAttachmentSummary:
+      "სრული Excel ექსპორტი გაიგზავნა {email}-ზე მოკლე ტექსტით წერილის სხეულში.",
+    agentEmailSuccessAttachmentSummaryChart:
+      "სრული Excel ექსპორტი და ჩარტის სურათი გაიგზავნა {email}-ზე მოკლე ტექსტით წერილის სხეულში.",
+    agentEmailSuccessAttachmentDetailed:
+      "სრული Excel ექსპორტი გაიგზავნა {email}-ზე დეტალური ტექსტით წერილის სხეულში.",
+    agentEmailSuccessAttachmentDetailedChart:
+      "სრული Excel ექსპორტი და ჩარტის სურათი გაიგზავნა {email}-ზე დეტალური ტექსტით წერილის სხეულში.",
+    agentEmailSuccessBodyFallback:
+      "ექსპორტი გაიგზავნა {email}-ზე მხოლოდ დანართებით. მოთხოვნილი შინაარსის ტექსტი ვერ დაემატა.",
+    agentEmailSuccessCustomBody: "გაიგზავნა {email}-ზე თქვენი შეტყობინებით.",
     exportFullReport: "სრული ანგარიშის ექსპორტი",
     exportFullReportTooltip: "ჩამოტვირთეთ სრული შედეგი (ყველა სტრიქონი) მიმდინარე მოთხოვნისთვის.",
     detailedBreakdown: "დეტალური ანალიზი",

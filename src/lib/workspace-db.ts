@@ -3,6 +3,14 @@ import sql from "mssql";
 import { getPool } from "@/lib/db";
 import { chartTypeFromJsonString, parseTagsJson, serializeTagsJson } from "@/lib/chart-config-meta";
 
+/** SQL Server 207: invalid column name — e.g. migrations not applied on dbo.SndApp_SavedReport. */
+function isRecoverableSchemaError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const any = e as { number?: number; originalError?: { number?: number } };
+  if (any.number === 207 || any.originalError?.number === 207) return true;
+  return /invalid column name/i.test(e.message);
+}
+
 export type SavedReportSource = "agent" | "builtin";
 
 export type WorkspaceTree = {
@@ -464,41 +472,72 @@ export async function createSection(
   return { id };
 }
 
+/** Result of patching a workspace section (see migration 009 for ColorKey). */
+export type PatchWorkspaceSectionOutcome =
+  | { kind: "ok" }
+  | { kind: "ok_title_only" }
+  | { kind: "not_found" }
+  | { kind: "color_requires_migration" };
+
 export async function updateSection(
   ownerId: string,
   sectionId: string,
   title: string,
 ): Promise<boolean> {
-  return patchWorkspaceSection(ownerId, sectionId, { title });
+  const r = await patchWorkspaceSection(ownerId, sectionId, { title });
+  return r.kind === "ok" || r.kind === "ok_title_only";
 }
 
 export async function patchWorkspaceSection(
   ownerId: string,
   sectionId: string,
   patch: { title?: string; colorKey?: string | null },
-): Promise<boolean> {
+): Promise<PatchWorkspaceSectionOutcome> {
   const hasTitle = typeof patch.title === "string" && patch.title.trim().length > 0;
   const hasColor = patch.colorKey !== undefined;
-  if (!hasTitle && !hasColor) return false;
+  if (!hasTitle && !hasColor) return { kind: "not_found" };
 
-  const pool = await getPool();
-  const req = pool.request();
-  req.input("sid", sql.UniqueIdentifier, sectionId);
-  req.input("oid", sql.UniqueIdentifier, ownerId);
-  if (hasTitle) req.input("title", sql.NVarChar(500), patch.title!.trim().slice(0, 500));
-  if (hasColor) req.input("colorKey", sql.NVarChar(32), patch.colorKey);
+  const runUpdate = async (includeColor: boolean) => {
+    const pool = await getPool();
+    const req = pool.request();
+    req.input("sid", sql.UniqueIdentifier, sectionId);
+    req.input("oid", sql.UniqueIdentifier, ownerId);
+    if (hasTitle) req.input("title", sql.NVarChar(500), patch.title!.trim().slice(0, 500));
+    if (includeColor && hasColor) req.input("colorKey", sql.NVarChar(32), patch.colorKey);
 
-  const sets: string[] = ["sec.UpdatedAt = SYSUTCDATETIME()"];
-  if (hasTitle) sets.push("sec.Title = @title");
-  if (hasColor) sets.push("sec.ColorKey = @colorKey");
+    const sets: string[] = ["sec.UpdatedAt = SYSUTCDATETIME()"];
+    if (hasTitle) sets.push("sec.Title = @title");
+    if (includeColor && hasColor) sets.push("sec.ColorKey = @colorKey");
 
-  const res = await req.query(
-    `UPDATE sec SET ${sets.join(", ")}
+    const res = await req.query(
+      `UPDATE sec SET ${sets.join(", ")}
      FROM dbo.SndApp_WorkspaceSection sec
      INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
      WHERE sec.Id = @sid AND w.UserId = @oid`,
-  );
-  return (res.rowsAffected?.[0] ?? 0) > 0;
+    );
+    return (res.rowsAffected?.[0] ?? 0) > 0;
+  };
+
+  try {
+    const ok = await runUpdate(true);
+    if (!ok) return { kind: "not_found" };
+    return { kind: "ok" };
+  } catch (e) {
+    if (!isRecoverableSchemaError(e)) throw e;
+    if (hasTitle && hasColor) {
+      try {
+        const ok = await runUpdate(false);
+        if (!ok) return { kind: "not_found" };
+        return { kind: "ok_title_only" };
+      } catch (e2) {
+        throw e2;
+      }
+    }
+    if (hasColor && !hasTitle) {
+      return { kind: "color_requires_migration" };
+    }
+    throw e;
+  }
 }
 
 export async function deleteSection(ownerId: string, sectionId: string): Promise<boolean> {
@@ -543,39 +582,69 @@ export async function createSavedReport(
   if (!ok.recordset[0] || ok.recordset[0].c === 0) return null;
 
   const id = randomUUID();
-  const req = pool.request();
-  req.input("id", sql.UniqueIdentifier, id);
-  req.input("sectionId", sql.UniqueIdentifier, sectionId);
-  req.input("title", sql.NVarChar(500), payload.title.trim().slice(0, 500));
-  req.input("source", sql.VarChar(20), payload.source);
-  req.input("prompt", NVARCHAR_MAX, payload.prompt ?? null);
-  req.input("sqlText", NVARCHAR_MAX, payload.sqlText ?? null);
-  req.input("chartJson", NVARCHAR_MAX, payload.chartConfigJson ?? null);
-  req.input("narrative", NVARCHAR_MAX, payload.narrative ?? null);
   const ct =
     typeof payload.chartType === "string" && payload.chartType.trim()
       ? payload.chartType.trim().slice(0, 32)
       : null;
-  req.input("chartType", sql.VarChar(32), ct);
 
-  await req.query(
-    `INSERT INTO dbo.SndApp_SavedReport
+  const runInsert = async (includeSortOrder: boolean, includeChartType: boolean) => {
+    const req = pool.request();
+    req.input("id", sql.UniqueIdentifier, id);
+    req.input("sectionId", sql.UniqueIdentifier, sectionId);
+    req.input("title", sql.NVarChar(500), payload.title.trim().slice(0, 500));
+    req.input("source", sql.VarChar(20), payload.source);
+    req.input("prompt", NVARCHAR_MAX, payload.prompt ?? null);
+    req.input("sqlText", NVARCHAR_MAX, payload.sqlText ?? null);
+    req.input("chartJson", NVARCHAR_MAX, payload.chartConfigJson ?? null);
+    req.input("narrative", NVARCHAR_MAX, payload.narrative ?? null);
+    req.input("chartType", sql.VarChar(32), ct);
+
+    let insertSql: string;
+    /** Literal 0 avoids subquery edge cases; user can reorder via workspace UI. */
+    if (includeSortOrder && includeChartType) {
+      insertSql = `INSERT INTO dbo.SndApp_SavedReport
        (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative, SortOrder, ChartType)
-     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative,
-       (SELECT ISNULL(MAX(SortOrder), -1) + 1 FROM dbo.SndApp_SavedReport WHERE SectionId = @sectionId),
-       @chartType)`,
-  );
-  return { id };
+     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative, 0, @chartType)`;
+    } else if (includeSortOrder) {
+      insertSql = `INSERT INTO dbo.SndApp_SavedReport
+       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative, SortOrder)
+     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative, 0)`;
+    } else {
+      insertSql = `INSERT INTO dbo.SndApp_SavedReport
+       (Id, SectionId, Title, Source, Prompt, SqlText, ChartConfigJson, Narrative)
+     VALUES (@id, @sectionId, @title, @source, @prompt, @sqlText, @chartJson, @narrative)`;
+    }
+    await req.query(insertSql);
+  };
+
+  /** Try full → no ChartType → base columns. Driver error shapes vary; do not rely only on error 207. */
+  const variants: Array<[boolean, boolean]> = [
+    [true, true],
+    [true, false],
+    [false, false],
+  ];
+  let lastErr: unknown;
+  for (const [includeSortOrder, includeChartType] of variants) {
+    try {
+      await runInsert(includeSortOrder, includeChartType);
+      return { id };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-export async function getSavedReportFull(
+async function fetchSavedReportFull(
   ownerId: string,
   reportId: string,
+  includeSortOrderColumn: boolean,
 ): Promise<SavedReportFull | null> {
   const pool = await getPool();
   const req = pool.request();
   req.input("rid", sql.UniqueIdentifier, reportId);
   req.input("oid", sql.UniqueIdentifier, ownerId);
+  const sortExpr = includeSortOrderColumn ? "r.SortOrder" : "CAST(0 AS INT)";
   const res = await req.query<{
     Id: string;
     Title: string;
@@ -589,7 +658,7 @@ export async function getSavedReportFull(
     UpdatedAt: Date;
   }>(
     `SELECT CAST(r.Id AS VARCHAR(36)) AS Id, r.Title, r.Source, r.Prompt, r.SqlText, r.ChartConfigJson, r.Narrative,
-            r.SortOrder, r.CreatedAt, r.UpdatedAt
+            ${sortExpr} AS SortOrder, r.CreatedAt, r.UpdatedAt
      FROM dbo.SndApp_SavedReport r
      INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
      INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
@@ -609,6 +678,18 @@ export async function getSavedReportFull(
     createdAt: rowDate(row.CreatedAt),
     updatedAt: rowDate(row.UpdatedAt),
   };
+}
+
+export async function getSavedReportFull(
+  ownerId: string,
+  reportId: string,
+): Promise<SavedReportFull | null> {
+  try {
+    return await fetchSavedReportFull(ownerId, reportId, true);
+  } catch (e) {
+    if (!isRecoverableSchemaError(e)) throw e;
+    return fetchSavedReportFull(ownerId, reportId, false);
+  }
 }
 
 export async function updateSavedReportTitle(
@@ -783,19 +864,33 @@ export async function patchSavedReport(
   }
 }
 
-export async function recordReportOpened(ownerId: string, reportId: string): Promise<boolean> {
-  const pool = await getPool();
-  const req = pool.request();
-  req.input("rid", sql.UniqueIdentifier, reportId);
-  req.input("oid", sql.UniqueIdentifier, ownerId);
-  const res = await req.query(
-    `UPDATE r SET r.LastOpenedAt = SYSUTCDATETIME(), r.OpenCount = r.OpenCount + 1, r.UpdatedAt = SYSUTCDATETIME()
+const RECORD_OPEN_FULL = `UPDATE r SET r.LastOpenedAt = SYSUTCDATETIME(), r.OpenCount = r.OpenCount + 1, r.UpdatedAt = SYSUTCDATETIME()
      FROM dbo.SndApp_SavedReport r
      INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
      INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
-     WHERE r.Id = @rid AND w.UserId = @oid`,
-  );
-  return (res.rowsAffected?.[0] ?? 0) > 0;
+     WHERE r.Id = @rid AND w.UserId = @oid`;
+
+const RECORD_OPEN_MINIMAL = `UPDATE r SET r.UpdatedAt = SYSUTCDATETIME()
+     FROM dbo.SndApp_SavedReport r
+     INNER JOIN dbo.SndApp_WorkspaceSection sec ON sec.Id = r.SectionId
+     INNER JOIN dbo.SndApp_Workspace w ON w.Id = sec.WorkspaceId
+     WHERE r.Id = @rid AND w.UserId = @oid`;
+
+export async function recordReportOpened(ownerId: string, reportId: string): Promise<boolean> {
+  const pool = await getPool();
+  const run = async (sqlText: string) => {
+    const req = pool.request();
+    req.input("rid", sql.UniqueIdentifier, reportId);
+    req.input("oid", sql.UniqueIdentifier, ownerId);
+    const res = await req.query(sqlText);
+    return (res.rowsAffected?.[0] ?? 0) > 0;
+  };
+  try {
+    return await run(RECORD_OPEN_FULL);
+  } catch (e) {
+    if (!isRecoverableSchemaError(e)) throw e;
+    return run(RECORD_OPEN_MINIMAL);
+  }
 }
 
 export async function updateSavedReportChartType(

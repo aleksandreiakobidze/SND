@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteSection, patchWorkspaceSection } from "@/lib/workspace-db";
+import { formatSqlDriverError } from "@/lib/sql-driver-error";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canEditWorkspace } from "@/lib/auth-roles";
 
@@ -11,7 +12,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     if (!auth.ok) return auth.res;
     if (!canEditWorkspace(auth.ctx.permissions)) return forbidden();
 
-    const { sectionId } = await ctx.params;
+    const { sectionId: rawSectionId } = await ctx.params;
+    const sectionId = rawSectionId.trim();
     const body = (await req.json()) as { title?: unknown; colorKey?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const hasTitle = title.length > 0;
@@ -21,7 +23,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       return NextResponse.json({ error: "Provide title and/or colorKey" }, { status: 400 });
     }
 
-    const ok = await patchWorkspaceSection(auth.ctx.user.id, sectionId, {
+    const outcome = await patchWorkspaceSection(auth.ctx.user.id, sectionId, {
       ...(hasTitle ? { title } : {}),
       ...(hasColor
         ? {
@@ -32,12 +34,27 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
           }
         : {}),
     });
-    if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ ok: true });
+    if (outcome.kind === "not_found") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (outcome.kind === "color_requires_migration") {
+      return NextResponse.json(
+        {
+          error: "Workspace metadata migration required",
+          details:
+            "The ColorKey column is missing on dbo.SndApp_WorkspaceSection. Run scripts/migrations/009-workspace-bi-metadata.sql against the app database.",
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      ...(outcome.kind === "ok_title_only" ? { colorKeySkipped: true } : {}),
+    });
   } catch (e) {
     console.error("PATCH /api/sections/[id]", e);
     return NextResponse.json(
-      { error: "Failed to update section", details: e instanceof Error ? e.message : "Unknown" },
+      { error: "Failed to update section", details: formatSqlDriverError(e) },
       { status: 500 },
     );
   }
@@ -49,14 +66,15 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<Params> }
     if (!auth.ok) return auth.res;
     if (!canEditWorkspace(auth.ctx.permissions)) return forbidden();
 
-    const { sectionId } = await ctx.params;
+    const { sectionId: rawSectionId } = await ctx.params;
+    const sectionId = rawSectionId.trim();
     const ok = await deleteSection(auth.ctx.user.id, sectionId);
     if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("DELETE /api/sections/[id]", e);
     return NextResponse.json(
-      { error: "Failed to delete section", details: e instanceof Error ? e.message : "Unknown" },
+      { error: "Failed to delete section", details: formatSqlDriverError(e) },
       { status: 500 },
     );
   }

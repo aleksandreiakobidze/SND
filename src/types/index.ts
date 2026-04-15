@@ -1,3 +1,11 @@
+/** Align with `MetricIntentKind` in agent-metric-intent (avoid circular imports). */
+export type AgentMetricIntentKind =
+  | "volume_liters"
+  | "quantity_units"
+  | "revenue_gel"
+  | "mixed"
+  | "unspecified";
+
 export interface KPIData {
   totalRevenue: number;
   totalOrders: number;
@@ -19,6 +27,8 @@ export interface AgentMessage {
   data?: Record<string, unknown>[];
   chartConfig?: ChartConfig | null;
   narrative?: string;
+  /** Preserved from agent API for re-export / email (same query semantics). */
+  metricIntentKind?: AgentMetricIntentKind;
   timestamp: Date;
   loading?: boolean;
 }
@@ -60,6 +70,8 @@ export interface AgentResponse {
   chartConfig: ChartConfig | null;
   narrative: string;
   suggestedQuestions?: string[];
+  /** Echo for client-side re-execution / email export. */
+  metricIntentKind?: AgentMetricIntentKind;
 }
 
 export interface DashboardData {

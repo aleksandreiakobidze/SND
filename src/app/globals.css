@@ -215,3 +215,10 @@
 .recharts-wrapper .recharts-pie-label-text {
   fill: var(--foreground);
 }
+
+.dark .agent-chart-light-surface .recharts-wrapper .recharts-cartesian-axis-tick-value {
+  fill: #0f172a;
+}
+.dark .agent-chart-light-surface .recharts-wrapper .recharts-pie-label-text {
+  fill: #0f172a;
+}

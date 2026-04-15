@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDefaultMatrixPrefs, type RecentTransactionsLayoutPrefs } from "@/lib/dashboard-layout";
 import {
+  RECENT_TX_VALUE_META,
+  type AggregationType,
   RECENT_TRANSACTIONS_COLUMN_IDS,
   RECENT_TX_COLUMN_LABEL_KEY,
   type RecentTransactionsColumnId,
@@ -33,11 +35,18 @@ const RT_PREFIX = {
 type Props = {
   prefs: RecentTransactionsLayoutPrefs;
   onPrefsChange: (next: RecentTransactionsLayoutPrefs) => void;
+  onMatrixValueAggregationChange?: (valueId: RecentTransactionsColumnId, aggregation: AggregationType) => void;
   canCustomize: boolean;
   t: (key: TranslationKey) => string;
 };
 
-export function RecentTransactionsFieldPanel({ prefs, onPrefsChange, canCustomize, t }: Props) {
+export function RecentTransactionsFieldPanel({
+  prefs,
+  onPrefsChange,
+  onMatrixValueAggregationChange,
+  canCustomize,
+  t,
+}: Props) {
   const view = prefs.viewMode ?? "table";
   const matrix = prefs.matrix ?? getDefaultMatrixPrefs();
   const matrixAssigned = new Set<RecentTransactionsColumnId>([
@@ -153,6 +162,46 @@ export function RecentTransactionsFieldPanel({ prefs, onPrefsChange, canCustomiz
                     key={id}
                     slot={`${RT_PREFIX.value}${id}`}
                     label={t(RECENT_TX_COLUMN_LABEL_KEY[id])}
+                    trailingControl={
+                      onMatrixValueAggregationChange && RECENT_TX_VALUE_META[id] ? (
+                        <select
+                          className="h-6 rounded border bg-background px-1 text-[10px]"
+                          value={
+                            matrix.valueDefs?.find((d) => d.valueId === id)?.aggregation ??
+                            RECENT_TX_VALUE_META[id]?.defaultAggregation ??
+                            "sum"
+                          }
+                          onChange={(e) =>
+                            onMatrixValueAggregationChange(
+                              id,
+                              e.target.value as AggregationType,
+                            )
+                          }
+                          onPointerDown={(e) => e.stopPropagation()}
+                          disabled={!canCustomize}
+                          aria-label={t("rtAggregation")}
+                          title={t("rtAggregation")}
+                        >
+                          {(RECENT_TX_VALUE_META[id]?.allowedAggregations ?? ["sum"]).map((agg) => (
+                            <option key={agg} value={agg}>
+                              {t(
+                                agg === "sum"
+                                  ? "rtAggSum"
+                                  : agg === "count"
+                                    ? "rtAggCount"
+                                    : agg === "distinct_count"
+                                      ? "rtAggDistinctCount"
+                                      : agg === "avg"
+                                        ? "rtAggAvg"
+                                        : agg === "min"
+                                          ? "rtAggMin"
+                                          : "rtAggMax",
+                              )}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null
+                    }
                     disabled={!canCustomize}
                     removeLabel={t("rtRemoveField")}
                     onRemove={
@@ -264,12 +313,14 @@ function DropZoneMatrix({
 function SortableZoneChip({
   slot,
   label,
+  trailingControl,
   disabled,
   onRemove,
   removeLabel,
 }: {
   slot: string;
   label: string;
+  trailingControl?: React.ReactNode;
   disabled: boolean;
   onRemove?: () => void;
   removeLabel: string;
@@ -293,6 +344,7 @@ function SortableZoneChip({
         <GripVertical className="h-3 w-3" aria-hidden />
       </button>
       <span className="min-w-0 flex-1 truncate px-0.5">{label}</span>
+      {trailingControl ? <div className="shrink-0 px-0.5">{trailingControl}</div> : null}
       {showRemove ? (
         <button
           type="button"

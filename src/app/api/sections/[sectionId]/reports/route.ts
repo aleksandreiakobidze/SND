@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSavedReport } from "@/lib/workspace-db";
 import { validateReadOnlySql } from "@/lib/db";
 import { chartTypeFromConfig } from "@/lib/chart-config-meta";
+import { formatSqlDriverError } from "@/lib/sql-driver-error";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
 import { canEditWorkspace } from "@/lib/auth-roles";
 import type { ChartConfig } from "@/types";
@@ -14,7 +15,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     if (!auth.ok) return auth.res;
     if (!canEditWorkspace(auth.ctx.permissions)) return forbidden();
 
-    const { sectionId } = await ctx.params;
+    const { sectionId: rawSectionId } = await ctx.params;
+    const sectionId = rawSectionId.trim();
     const body = await req.json();
 
     const title = typeof body.title === "string" ? body.title : "";
@@ -26,7 +28,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     let chartType: string | null = null;
     if (body.chartConfig != null) {
       const cfg = body.chartConfig as ChartConfig;
-      chartConfigJson = JSON.stringify(cfg);
+      try {
+        chartConfigJson = JSON.stringify(cfg);
+      } catch {
+        return NextResponse.json({ error: "chartConfig is not JSON-serializable" }, { status: 400 });
+      }
       chartType = chartTypeFromConfig(cfg);
     }
 
@@ -58,7 +64,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   } catch (e) {
     console.error("POST /api/sections/[id]/reports", e);
     return NextResponse.json(
-      { error: "Failed to save report", details: e instanceof Error ? e.message : "Unknown" },
+      { error: "Failed to save report", details: formatSqlDriverError(e) },
       { status: 500 },
     );
   }

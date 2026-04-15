@@ -11,6 +11,18 @@ function cellToNumber(v: unknown): number {
   return 0;
 }
 
+function formatMatrixColumnLabel(v: unknown): string {
+  if (v instanceof Date && Number.isFinite(v.getTime())) {
+    return v.toISOString().slice(0, 10);
+  }
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const isoMidnight =
+    /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|[+-]00:00)?$/i.exec(s);
+  if (isoMidnight) return isoMidnight[1];
+  return s;
+}
+
 export type AgentMatrixModel = {
   rowLabels: string[];
   colLabels: string[];
@@ -33,7 +45,7 @@ export function buildMatrixFromWide(
   const seen = new Set<string>();
   const cols: string[] = [];
   for (const r of wide) {
-    const c = String(r[xKey] ?? "");
+    const c = formatMatrixColumnLabel(r[xKey]);
     if (!seen.has(c)) {
       seen.add(c);
       cols.push(c);
@@ -44,7 +56,7 @@ export function buildMatrixFromWide(
   const cells: number[][] = rowLabels.map(() => cols.map(() => 0));
 
   for (const r of wide) {
-    const colVal = String(r[xKey] ?? "");
+    const colVal = formatMatrixColumnLabel(r[xKey]);
     const ci = cols.indexOf(colVal);
     if (ci < 0) continue;
     for (let ri = 0; ri < rowLabels.length; ri++) {

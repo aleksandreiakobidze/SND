@@ -22,6 +22,15 @@ import { useAuth, useAuthCapabilities } from "@/lib/auth-context";
 import { useFilterOptions } from "@/lib/useFilterOptions";
 import { useFilters } from "@/lib/useFilters";
 import type { AgentMessage, AgentResponse } from "@/types";
+import {
+  parseEmailDeliveryIntent,
+  shouldIncludeChartImageInEmail,
+} from "@/lib/agent-email-delivery-intent";
+import {
+  agentMessageHasChartable,
+  inferDefaultAgentReportView,
+  type AgentReportView,
+} from "@/lib/agent-report-view";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -41,7 +50,7 @@ function AgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t, locale } = useLocale();
-  const { permissions, loading: authLoading } = useAuth();
+  const { user, permissions, loading: authLoading } = useAuth();
   const { canUseAgent, canViewDashboard } = useAuthCapabilities(permissions);
 
   const canAccessPage = canUseAgent || canViewDashboard;
@@ -77,6 +86,20 @@ function AgentPageContent() {
   const [saveTarget, setSaveTarget] = useState<AgentMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedSavedReportRef = useRef<string | null>(null);
+  const chartCaptureRegistry = useRef<Map<string, () => Promise<string | null>>>(new Map());
+
+  const [agentReportViewByMessageId, setAgentReportViewByMessageId] = useState<
+    Record<string, AgentReportView>
+  >({});
+
+  const handleReportViewChange = useCallback((id: string, view: AgentReportView) => {
+    setAgentReportViewByMessageId((prev) => ({ ...prev, [id]: view }));
+  }, []);
+
+  const registerChartCapture = useCallback((id: string, fn: (() => Promise<string | null>) | null) => {
+    if (fn) chartCaptureRegistry.current.set(id, fn);
+    else chartCaptureRegistry.current.delete(id);
+  }, []);
 
   const savedReportId = searchParams.get("report");
   const urlAskMode = searchParams.get("mode") === "ask";
@@ -124,6 +147,8 @@ function AgentPageContent() {
           credentials: "include",
         });
         const json = (await res.json()) as {
+          sql?: string;
+          metricIntentKind?: AgentMessage["metricIntentKind"];
           data?: Record<string, unknown>[];
           chartConfig?: AgentResponse["chartConfig"];
           narrative?: string;
@@ -134,6 +159,8 @@ function AgentPageContent() {
           role: "assistant",
           content: typeof json.narrative === "string" ? json.narrative : "",
           narrative: typeof json.narrative === "string" ? json.narrative : undefined,
+          sql: typeof json.sql === "string" ? json.sql : undefined,
+          metricIntentKind: json.metricIntentKind,
           data: Array.isArray(json.data) ? json.data : [],
           chartConfig: json.chartConfig ?? null,
           timestamp: new Date(),
@@ -152,12 +179,242 @@ function AgentPageContent() {
   }, [savedReportId, authLoading, canUseAgent, canViewDashboard, urlAskMode, router]);
 
   async function handleSendAgent(question: string) {
+    const delivery = parseEmailDeliveryIntent(question);
+
     const userMessage: AgentMessage = {
       id: `user-${Date.now()}`,
       role: "user",
       content: question,
       timestamp: new Date(),
     };
+
+    if (delivery.hasEmailIntent) {
+      const lastResult = [...agentMessages]
+        .reverse()
+        .find(
+          (m) =>
+            m.role === "assistant" &&
+            Boolean(m.sql) &&
+            !m.loading &&
+            Array.isArray(m.data),
+        );
+
+      if (!lastResult?.sql) {
+        const err: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: t("agentEmailErrorNoResult"),
+          narrative: t("agentEmailErrorNoResult"),
+          timestamp: new Date(),
+        };
+        setAgentMessages((prev) => [...prev, userMessage, err]);
+        return;
+      }
+
+      let recipient =
+        delivery.recipientEmail?.trim() ||
+        (delivery.useSignedInEmail ? user?.email?.trim() : undefined);
+
+      if (delivery.useSignedInEmail && !user?.email) {
+        const err: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: t("agentEmailErrorNoSignedInEmail"),
+          narrative: t("agentEmailErrorNoSignedInEmail"),
+          timestamp: new Date(),
+        };
+        setAgentMessages((prev) => [...prev, userMessage, err]);
+        return;
+      }
+
+      if (!recipient) {
+        const ask: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: t("agentEmailAskAddress"),
+          narrative: t("agentEmailAskAddress"),
+          timestamp: new Date(),
+        };
+        setAgentMessages((prev) => [...prev, userMessage, ask]);
+        return;
+      }
+
+      const loadingMessage: AgentMessage = {
+        id: `loading-${Date.now()}`,
+        role: "assistant",
+        content: "",
+        timestamp: new Date(),
+        loading: true,
+      };
+
+      setAgentMessages((prev) => [...prev, userMessage, loadingMessage]);
+      setAgentLoading(true);
+
+      try {
+        const activeView =
+          agentReportViewByMessageId[lastResult.id] ?? inferDefaultAgentReportView(lastResult);
+        const hasChartable = agentMessageHasChartable(lastResult);
+        const includeChartImage = shouldIncludeChartImageInEmail({
+          hasChartable,
+          activeView,
+          wantsExcelOnly: delivery.wantsExcelOnly,
+          wantsChartExplicit: delivery.wantsChartExplicit,
+        });
+
+        let chartImagePngBase64: string | undefined;
+        if (includeChartImage) {
+          const cap = chartCaptureRegistry.current.get(lastResult.id);
+          if (cap) {
+            try {
+              const b64 = await cap();
+              if (b64) chartImagePngBase64 = b64;
+            } catch {
+              /* chartImagePngBase64 stays undefined */
+            }
+          }
+        }
+
+        const res = await fetch("/api/agent/email-export", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sql: lastResult.sql,
+            chartConfig: lastResult.chartConfig ?? null,
+            chartType: lastResult.chartConfig?.type ?? "table",
+            metricIntentKind: lastResult.metricIntentKind,
+            recipientEmail: recipient,
+            useSignedInEmail: false,
+            locale,
+            activeReportView: activeView,
+            includeChartImageRequested: includeChartImage,
+            ...(chartImagePngBase64 ? { chartImagePngBase64 } : {}),
+            userMessageForIntent: question,
+            emailBodyMode: delivery.emailBodyMode,
+            ...(delivery.customEmailBodyText != null
+              ? { customEmailBodyText: delivery.customEmailBodyText }
+              : {}),
+          }),
+        });
+        const json = (await res.json()) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+          rowCount?: number;
+          sentChartImage?: boolean;
+          sentExcel?: boolean;
+          excelDeliveryKind?: "flat" | "matrix" | "chart_bundle";
+          emailBodyModeSent?: "generic" | "summary" | "detailed" | "custom";
+          bodyContentIncluded?: boolean;
+          bodyContentFallback?: boolean;
+        };
+
+        if (!res.ok) {
+          const errCode = json.error;
+          const msg =
+            errCode === "EMAIL_NOT_CONFIGURED"
+              ? t("agentEmailErrorNotConfigured")
+              : errCode === "EMPTY_DATASET"
+                ? t("agentEmailErrorEmpty")
+                : errCode === "EMPTY_EXPORT"
+                  ? t("agentEmailErrorExportEmpty")
+                  : errCode === "SQL_EXECUTION_FAILED"
+                    ? t("agentEmailErrorSql")
+                    : errCode === "EXPORT_FAILED"
+                      ? t("agentEmailErrorExport")
+                      : errCode === "MATRIX_EXPORT_UNAVAILABLE"
+                        ? t("agentEmailErrorMatrixExport")
+                        : errCode === "EMAIL_SEND_FAILED"
+                          ? t("agentEmailErrorSend")
+                          : errCode === "INVALID_EMAIL"
+                            ? t("agentEmailErrorInvalidRecipient")
+                            : errCode === "RECIPIENT_REQUIRED"
+                              ? t("agentEmailAskAddress")
+                              : json.message || json.error || t("agentEmailErrorGeneric");
+          const err: AgentMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: msg,
+            narrative: msg,
+            timestamp: new Date(),
+          };
+          setAgentMessages((prev) => prev.filter((m) => !m.loading).concat(err));
+          return;
+        }
+
+        const sentChart = json.sentChartImage === true;
+        const chartSkipped = includeChartImage && !sentChart;
+        const bodyModeSent = json.emailBodyModeSent ?? "generic";
+        const bodyContentIncluded = json.bodyContentIncluded === true;
+        const bodyContentFallback = json.bodyContentFallback === true;
+        const excelKind = json.excelDeliveryKind ?? "flat";
+
+        let okText: string;
+        if (bodyContentFallback) {
+          okText = t("agentEmailSuccessBodyFallback").replace("{email}", recipient);
+        } else if (bodyModeSent === "custom") {
+          okText = t("agentEmailSuccessCustomBody").replace("{email}", recipient);
+        } else if (bodyContentIncluded && bodyModeSent === "summary") {
+          if (excelKind === "flat") {
+            okText = t("agentEmailSuccessFlatSummary").replace("{email}", recipient);
+          } else if (excelKind === "matrix") {
+            okText = sentChart
+              ? t("agentEmailSuccessMatrixSummaryWithChart").replace("{email}", recipient)
+              : t("agentEmailSuccessMatrixSummary").replace("{email}", recipient);
+          } else {
+            okText = sentChart
+              ? t("agentEmailSuccessChartBundleSummaryChart").replace("{email}", recipient)
+              : t("agentEmailSuccessChartBundleSummaryExcelOnly").replace("{email}", recipient);
+          }
+        } else if (bodyContentIncluded && bodyModeSent === "detailed") {
+          if (excelKind === "flat") {
+            okText = t("agentEmailSuccessFlatDetailed").replace("{email}", recipient);
+          } else if (excelKind === "matrix") {
+            okText = sentChart
+              ? t("agentEmailSuccessMatrixDetailedWithChart").replace("{email}", recipient)
+              : t("agentEmailSuccessMatrixDetailed").replace("{email}", recipient);
+          } else {
+            okText = sentChart
+              ? t("agentEmailSuccessChartBundleDetailedChart").replace("{email}", recipient)
+              : t("agentEmailSuccessChartBundleDetailedExcelOnly").replace("{email}", recipient);
+          }
+        } else if (chartSkipped) {
+          okText = t("agentEmailSuccessChartExportFailedShort").replace("{email}", recipient);
+        } else if (excelKind === "flat") {
+          okText = t("agentEmailSuccessFlatOnly").replace("{email}", recipient);
+        } else if (excelKind === "matrix") {
+          okText = sentChart
+            ? t("agentEmailSuccessMatrixWithChart").replace("{email}", recipient)
+            : t("agentEmailSuccessMatrixOnly").replace("{email}", recipient);
+        } else {
+          okText = sentChart
+            ? t("agentEmailSuccessChartBundleFull").replace("{email}", recipient)
+            : t("agentEmailSuccessChartBundleExcelNoChart").replace("{email}", recipient);
+        }
+
+        const ok: AgentMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: okText,
+          narrative: okText,
+          timestamp: new Date(),
+        };
+        setAgentMessages((prev) => prev.filter((m) => !m.loading).concat(ok));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t("agentEmailErrorGeneric");
+        const errMsg: AgentMessage = {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: msg,
+          narrative: msg,
+          timestamp: new Date(),
+        };
+        setAgentMessages((prev) => prev.filter((m) => !m.loading).concat(errMsg));
+      } finally {
+        setAgentLoading(false);
+      }
+      return;
+    }
 
     const loadingMessage: AgentMessage = {
       id: `loading-${Date.now()}`,
@@ -220,6 +477,7 @@ function AgentPageContent() {
         data: response.data,
         chartConfig: response.chartConfig,
         narrative: response.narrative,
+        metricIntentKind: response.metricIntentKind,
         timestamp: new Date(),
       };
 
@@ -331,6 +589,8 @@ function AgentPageContent() {
     if (mode === "agent") {
       setAgentMessages([]);
       setAgentSuggestions([]);
+      setAgentReportViewByMessageId({});
+      chartCaptureRegistry.current.clear();
     } else {
       setCoachMessages([]);
       setCoachSuggestions([]);
@@ -449,6 +709,8 @@ function AgentPageContent() {
                         key={msg.id}
                         message={msg}
                         onSaveToWorkspace={openSaveToWorkspace}
+                        onReportViewChange={handleReportViewChange}
+                        registerChartCapture={registerChartCapture}
                       />
                     ))}
                     {!agentLoading && agentSuggestions.length > 0 && (

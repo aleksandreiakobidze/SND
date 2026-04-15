@@ -35,6 +35,12 @@ const VOLUME_PATTERNS: RegExp[] = [
 
 /** Unit count (not liters) — English + Georgian */
 const QUANTITY_PATTERNS: RegExp[] = [
+  /\bcount\b/i,
+  /\bnumber\s+of\b/i,
+  /\bdistinct\s+(customers?|clients?|orders?|organizations?)\b/i,
+  /\bcustomers?\s+count\b/i,
+  /\borders?\s+count\b/i,
+  /\borganizations?\s+count\b/i,
   /\bqty\b/i,
   /\bquantity\b/i,
   /\bquantities\b/i,
@@ -136,14 +142,28 @@ export function resolveMeasureDisplay(
   chartConfig: ChartConfig | null | undefined,
   data?: Record<string, unknown>[] | null,
 ): ChartMeasureDisplay {
+  const keys = [
+    ...(chartConfig?.yKeys ?? []),
+    ...(data?.[0] ? Object.keys(data[0]) : []),
+    chartConfig?.comparison?.measure ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const hasCountSignal =
+    /\bcount\b|distinct|customercount|ordercount|orgcount|organizationcount|customer_count|order_count/i.test(
+      keys,
+    );
+
   const md = chartConfig?.measureDisplay;
+  // Count-like metrics must never be displayed as money, even if persisted metadata says "money".
+  if (md === "money" && hasCountSignal) return "quantity";
   if (md === "liters" || md === "money" || md === "quantity" || md === "mixed") {
     return md;
   }
-  const keys = [...(chartConfig?.yKeys ?? []), ...(data?.[0] ? Object.keys(data[0]) : [])]
-    .join(" ")
-    .toLowerCase();
   if (/liters|tevadoba|volume/i.test(keys)) return "liters";
+  if (hasCountSignal) {
+    return "quantity";
+  }
   if (/\braod\b|quantity|units/i.test(keys)) return "quantity";
   return "money";
 }

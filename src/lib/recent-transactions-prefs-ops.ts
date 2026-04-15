@@ -5,19 +5,27 @@ import {
 } from "@/lib/dashboard-layout";
 import {
   RECENT_TRANSACTIONS_COLUMN_IDS,
+  defaultAggregationForValueId,
+  isRecentTxValueEligible,
+  type AggregationType,
+  normalizeValueDefs,
   type RecentTransactionsColumnId,
   isRecentTransactionsColumnId,
   isRecentTxMeasureColumnId,
 } from "@/lib/recent-transactions-columns";
 
 function baseMatrix(prefs: RecentTransactionsLayoutPrefs): RecentTransactionsMatrixPrefs {
-  return (
+  const base =
     prefs.matrix ?? {
       rowIds: [],
       columnIds: [],
       valueIds: ["liter"],
-    }
-  );
+      valueDefs: [{ valueId: "liter", aggregation: "sum" }],
+    };
+  return {
+    ...base,
+    valueDefs: normalizeValueDefs(base.valueIds, base.valueDefs),
+  };
 }
 
 export function withReconciledPrefs(prefs: RecentTransactionsLayoutPrefs): RecentTransactionsLayoutPrefs {
@@ -69,7 +77,8 @@ export function setViewMode(prefs: RecentTransactionsLayoutPrefs, mode: "table" 
 }
 
 function ensureMatrix(prefs: RecentTransactionsLayoutPrefs): RecentTransactionsMatrixPrefs {
-  return prefs.matrix ?? { rowIds: [], columnIds: [], valueIds: ["liter"] };
+  const m = prefs.matrix ?? { rowIds: [], columnIds: [], valueIds: ["liter"] };
+  return { ...m, valueDefs: normalizeValueDefs(m.valueIds, m.valueDefs) };
 }
 
 /** Move id into matrix zone; removes from table partition or other matrix zones first. */
@@ -87,7 +96,7 @@ export function addFieldToMatrixZone(
   let valueIds = m.valueIds.filter((x) => x !== id);
 
   if (zone === "values") {
-    if (!isRecentTxMeasureColumnId(id)) return withReconciledPrefs(prefs);
+    if (!isRecentTxValueEligible(id)) return withReconciledPrefs(prefs);
     const idx = insertIndex ?? valueIds.length;
     valueIds = [...valueIds.slice(0, idx), id, ...valueIds.slice(idx)];
   } else {
@@ -102,12 +111,16 @@ export function addFieldToMatrixZone(
   }
 
   if (valueIds.length < 1) valueIds = ["liter"];
+  const valueDefs = normalizeValueDefs(valueIds, m.valueDefs);
+  if (!valueDefs.some((d) => d.valueId === id) && zone === "values") {
+    valueDefs.push({ valueId: id, aggregation: defaultAggregationForValueId(id) });
+  }
 
   const next: RecentTransactionsLayoutPrefs = {
     ...prefs,
     columnOrder,
     hiddenColumnIds,
-    matrix: { rowIds, columnIds, valueIds },
+    matrix: { rowIds, columnIds, valueIds, valueDefs },
   };
   return withReconciledPrefs(next);
 }
@@ -118,6 +131,7 @@ export function removeFieldFromMatrix(prefs: RecentTransactionsLayoutPrefs, id: 
   const columnIds = m.columnIds.filter((x) => x !== id);
   let valueIds = m.valueIds.filter((x) => x !== id);
   if (valueIds.length < 1) valueIds = ["liter"];
+  const valueDefs = normalizeValueDefs(valueIds, m.valueDefs?.filter((d) => d.valueId !== id));
   let hiddenColumnIds = [...prefs.hiddenColumnIds];
   if (!prefs.columnOrder.includes(id) && !hiddenColumnIds.includes(id)) {
     hiddenColumnIds = [...hiddenColumnIds, id];
@@ -125,7 +139,7 @@ export function removeFieldFromMatrix(prefs: RecentTransactionsLayoutPrefs, id: 
   const next: RecentTransactionsLayoutPrefs = {
     ...prefs,
     hiddenColumnIds,
-    matrix: { rowIds, columnIds, valueIds },
+    matrix: { rowIds, columnIds, valueIds, valueDefs },
   };
   return withReconciledPrefs(next);
 }
@@ -146,7 +160,7 @@ export function reorderMatrixZone(
   list.splice(ni, 0, removed);
   const next: RecentTransactionsLayoutPrefs = {
     ...prefs,
-    matrix: { ...m, [key]: list },
+    matrix: { ...m, [key]: list, valueDefs: normalizeValueDefs(key === "valueIds" ? (list as RecentTransactionsColumnId[]) : m.valueIds, m.valueDefs) },
   };
   return withReconciledPrefs(next);
 }
@@ -163,7 +177,7 @@ export function moveMatrixFieldBetweenZones(
   let valueIds = m.valueIds.filter((x) => x !== id);
 
   if (target === "values") {
-    if (!isRecentTxMeasureColumnId(id)) return withReconciledPrefs(prefs);
+    if (!isRecentTxValueEligible(id)) return withReconciledPrefs(prefs);
     const idx = insertIndex ?? valueIds.length;
     valueIds = [...valueIds.slice(0, idx), id, ...valueIds.slice(idx)];
   } else if (target === "rows") {
@@ -177,12 +191,29 @@ export function moveMatrixFieldBetweenZones(
   }
 
   if (valueIds.length < 1) valueIds = ["liter"];
+  const valueDefs = normalizeValueDefs(valueIds, m.valueDefs);
 
   const next: RecentTransactionsLayoutPrefs = {
     ...prefs,
-    matrix: { rowIds, columnIds, valueIds },
+    matrix: { rowIds, columnIds, valueIds, valueDefs },
   };
   return withReconciledPrefs(next);
+}
+
+export function setMatrixValueAggregation(
+  prefs: RecentTransactionsLayoutPrefs,
+  valueId: RecentTransactionsColumnId,
+  aggregation: AggregationType,
+): RecentTransactionsLayoutPrefs {
+  const m = ensureMatrix(prefs);
+  if (!m.valueIds.includes(valueId) || !isRecentTxValueEligible(valueId)) return prefs;
+  const defs = normalizeValueDefs(m.valueIds, m.valueDefs).map((d) =>
+    d.valueId === valueId ? { ...d, aggregation } : d,
+  );
+  return withReconciledPrefs({
+    ...prefs,
+    matrix: { ...m, valueDefs: defs },
+  });
 }
 
 export function catalogFieldIds(): RecentTransactionsColumnId[] {
