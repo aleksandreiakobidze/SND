@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Loader2,
   RotateCcw,
-  Wand2,
   FileSpreadsheet,
   AlertTriangle,
   CalendarCheck,
@@ -35,6 +35,23 @@ const DRIVER_COLORS = [
 
 export function driverColor(idx: number): string {
   return DRIVER_COLORS[idx % DRIVER_COLORS.length];
+}
+
+const AUTO_DISTRIBUTE_IMG = "/images/auto-distribute-snap.png";
+const AUTO_DISTRIBUTE_GIF_URL =
+  "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExczZvOHhkeW9lNWJ0b2ZnOTFkYzF5MjByd3BwdnJvcnV3OXNsNmE4eSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/iIFS20pNoCg1EEVodC/giphy.gif";
+const AUTO_DISTRIBUTE_GIF_MIN_MS = 2500;
+
+function AutoDistributeIcon({ className }: { className?: string }) {
+  return (
+    <img
+      src={AUTO_DISTRIBUTE_IMG}
+      alt=""
+      width={48}
+      height={48}
+      className={cn("shrink-0 object-cover", className)}
+    />
+  );
 }
 
 function todayStr(): string {
@@ -83,6 +100,21 @@ export function DistributionPanel({
   const [openSheetDriverIdx, setOpenSheetDriverIdx] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const [unassignedOpen, setUnassignedOpen] = useState(true);
+  const [showDistributeGif, setShowDistributeGif] = useState(false);
+  const [portalMounted, setPortalMounted] = useState(false);
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!showDistributeGif) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showDistributeGif]);
 
   const mapDate = useMemo(() => {
     const p = new URLSearchParams(filtersKey.replace(/^&/, ""));
@@ -127,6 +159,8 @@ export function DistributionPanel({
     setLoading(true);
     setError(null);
     setApplied(false);
+    setShowDistributeGif(true);
+    const gifStarted = Date.now();
     try {
       const res = await fetch("/api/sales-map/auto-distribute", {
         method: "POST",
@@ -147,7 +181,12 @@ export function DistributionPanel({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Network error");
     } finally {
+      const elapsed = Date.now() - gifStarted;
+      if (elapsed < AUTO_DISTRIBUTE_GIF_MIN_MS) {
+        await new Promise((r) => setTimeout(r, AUTO_DISTRIBUTE_GIF_MIN_MS - elapsed));
+      }
       setLoading(false);
+      setShowDistributeGif(false);
     }
   }
 
@@ -285,6 +324,7 @@ export function DistributionPanel({
   );
 
   return (
+    <>
     <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card shadow-sm">
       {/* Accent bar */}
       <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b from-primary via-primary/60 to-primary/20" />
@@ -294,8 +334,8 @@ export function DistributionPanel({
         {/* Title row + primary actions */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10 shrink-0">
-              <Wand2 className="h-4 w-4 text-primary" />
+            <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-primary/10 shrink-0 overflow-hidden ring-1 ring-border/30">
+              <AutoDistributeIcon className="h-full w-full rounded-md" />
             </div>
             <div className="min-w-0">
               <h3 className="text-sm font-semibold truncate">{t("distTitle")}</h3>
@@ -310,7 +350,11 @@ export function DistributionPanel({
               onClick={() => void runAutoDistribute()}
               disabled={loading || applying}
             >
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <AutoDistributeIcon className="h-7 w-7 rounded-md ring-1 ring-border/50" />
+              )}
               {loading ? t("distCalculating") : t("distAutoDistribute")}
             </Button>
             {plan && !applied && (
@@ -549,13 +593,33 @@ export function DistributionPanel({
 
         {!plan && !loading && !error && (
           <div className="flex flex-col items-center justify-center gap-3 py-10 text-muted-foreground">
-            <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-muted/30">
-              <Wand2 className="h-5 w-5 opacity-50" />
+            <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-muted/30 overflow-hidden ring-1 ring-border/20">
+              <AutoDistributeIcon className="h-full w-full rounded-lg opacity-80" />
             </div>
             <p className="text-sm">{t("distHint")}</p>
           </div>
         )}
       </div>
     </div>
+    {portalMounted && showDistributeGif
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Auto-distribute"
+          >
+            <img
+              src={AUTO_DISTRIBUTE_GIF_URL}
+              alt=""
+              className="max-h-[min(70vh,720px)] w-full max-w-2xl object-contain rounded-lg shadow-2xl"
+              width={800}
+              height={800}
+            />
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
