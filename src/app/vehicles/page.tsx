@@ -27,6 +27,7 @@ interface VehicleRow {
   maxLiters: number | null;
   maxKg: number | null;
   maxOrders: number | null;
+  maxPallets: number | null;
   vehiclePlate: string | null;
   vehicleType: string | null;
 }
@@ -35,6 +36,7 @@ interface EditState {
   maxLiters: string;
   maxKg: string;
   maxOrders: string;
+  maxPallets: string;
   vehiclePlate: string;
   vehicleType: string;
 }
@@ -44,6 +46,7 @@ function toEditState(v: VehicleRow): EditState {
     maxLiters: v.maxLiters != null ? String(v.maxLiters) : "",
     maxKg: v.maxKg != null ? String(v.maxKg) : "",
     maxOrders: v.maxOrders != null ? String(v.maxOrders) : "",
+    maxPallets: v.maxPallets != null ? String(v.maxPallets) : "",
     vehiclePlate: v.vehiclePlate ?? "",
     vehicleType: v.vehicleType ?? "",
   };
@@ -247,6 +250,7 @@ export default function VehiclesPage() {
         maxLiters: editState.maxLiters !== "" ? parseFloat(editState.maxLiters) : null,
         maxKg: editState.maxKg !== "" ? parseFloat(editState.maxKg) : null,
         maxOrders: editState.maxOrders !== "" ? parseInt(editState.maxOrders, 10) : null,
+        maxPallets: editState.maxPallets !== "" ? parseInt(editState.maxPallets, 10) : null,
         vehiclePlate: editState.vehiclePlate || null,
         vehicleType: editState.vehicleType || null,
       };
@@ -269,6 +273,7 @@ export default function VehiclesPage() {
                 maxLiters: body.maxLiters,
                 maxKg: body.maxKg,
                 maxOrders: body.maxOrders,
+                maxPallets: body.maxPallets,
                 vehiclePlate: body.vehiclePlate,
                 vehicleType: body.vehicleType,
               }
@@ -342,6 +347,7 @@ export default function VehiclesPage() {
                       <TableHead>{t("distLiters")} (max)</TableHead>
                       <TableHead>{t("distWeight")} (max)</TableHead>
                       <TableHead>{t("distOrders")} (max)</TableHead>
+                      <TableHead>{t("distPallets")} (max)</TableHead>
                       <TableHead>Regions</TableHead>
                       <TableHead className="w-24" />
                     </TableRow>
@@ -412,6 +418,18 @@ export default function VehiclesPage() {
                                 />
                               </TableCell>
                               <TableCell>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  className="h-7 text-sm w-20"
+                                  value={editState.maxPallets}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    setEditState((s) => s ? { ...s, maxPallets: e.target.value } : s)
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell>
                                 <RegionCell
                                   driverId={v.id}
                                   regions={driverRegions[v.id] ?? []}
@@ -467,6 +485,9 @@ export default function VehiclesPage() {
                               </TableCell>
                               <TableCell className="text-sm tabular-nums text-muted-foreground">
                                 {v.maxOrders != null ? v.maxOrders : <span className="text-border">—</span>}
+                              </TableCell>
+                              <TableCell className="text-sm tabular-nums text-muted-foreground">
+                                {v.maxPallets != null ? v.maxPallets : <span className="text-border">—</span>}
                               </TableCell>
                               <TableCell>
                                 <RegionCell

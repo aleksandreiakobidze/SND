@@ -70,33 +70,66 @@ export function buildUnassignedOrdersQuery(
   const idmdz = rvaSql("IDMDZ");
   const micodeba = rvaSql("MICODEBA");
 
+  const vData = `v.${data}`;
   const dateParts: string[] = [];
   if (deliveryDate) {
     const safe = deliveryDate.replace(/'/g, "").slice(0, 10);
-    dateParts.push(`${data} >= '${safe}'`);
-    dateParts.push(sqlDataBeforeNextDay(data, safe));
+    dateParts.push(`${vData} >= '${safe}'`);
+    dateParts.push(sqlDataBeforeNextDay(vData, safe));
   }
 
   const dateClauses = dateParts.length > 0 ? dateParts.join(" AND ") + " AND " : "";
 
+  const idprod = rvaSql("IDPROD");
+  const raod = rvaSql("RAOD");
+  const vRaod = `v.${raod}`;
+  const vIdProd = `v.${idprod}`;
+
+  const linePalletsExpr = `
+    CAST(CASE
+      WHEN p.UnitsPerPallet IS NOT NULL AND p.UnitsPerPallet > 0
+      THEN CEILING(CAST(${vRaod} AS float) / p.UnitsPerPallet)
+      ELSE 0
+    END AS float)`;
+
+  const inner = `
+    SELECT
+      v.${id1} AS IdReal1,
+      v.${data} AS Data,
+      v.${org} AS Org,
+      v.${reg} AS Reg,
+      v.${idorg} AS OrgCode,
+      v.${city} AS City,
+      CAST(v.${lat} AS float) AS Lat,
+      CAST(v.${lon} AS float) AS Lon,
+      CAST(v.${tanxa} AS float) AS LineTanxa,
+      CAST(v.${tev} AS float) AS LineTev,
+      CAST(v.${bruto} AS float) AS LineBruto,
+      ${linePalletsExpr} AS LinePallets
+    FROM ${VIEW_NAME} v
+    LEFT JOIN dbo.SndApp_ProductPalletCapacity p
+      ON LTRIM(RTRIM(CAST(${vIdProd} AS NVARCHAR(50)))) = LTRIM(RTRIM(p.IdProd))
+    WHERE ${dateClauses}v.${lon} IS NOT NULL AND v.${lat} IS NOT NULL
+      AND (v.${micodeba} = 1 OR v.${micodeba} IS NULL OR v.${idmdz} IS NULL OR v.${idmdz} = 0)
+  `;
+
   const base = `
     SELECT
-      ${id1} AS IdReal1,
-      MAX(${org}) AS Org,
-      MAX(${reg}) AS Reg,
-      MAX(${idorg}) AS OrgCode,
-      MAX(${city}) AS City,
-      CAST(AVG(CAST(${lat} AS float)) AS float) AS Lat,
-      CAST(AVG(CAST(${lon} AS float)) AS float) AS Lon,
-      CAST(SUM(${tanxa}) AS float) AS OrderTotal,
-      CAST(SUM(${tev}) AS float) AS OrderLiters,
-      CAST(SUM(${bruto}) AS float) AS BrutoTotal,
+      x.IdReal1,
+      MAX(x.Org) AS Org,
+      MAX(x.Reg) AS Reg,
+      MAX(x.OrgCode) AS OrgCode,
+      MAX(x.City) AS City,
+      CAST(AVG(x.Lat) AS float) AS Lat,
+      CAST(AVG(x.Lon) AS float) AS Lon,
+      CAST(SUM(x.LineTanxa) AS float) AS OrderTotal,
+      CAST(SUM(x.LineTev) AS float) AS OrderLiters,
+      CAST(SUM(x.LineBruto) AS float) AS BrutoTotal,
+      CAST(SUM(x.LinePallets) AS float) AS OrderPallets,
       COUNT(*) AS LineCount
-    FROM ${VIEW_NAME}
-    WHERE ${dateClauses}${lon} IS NOT NULL AND ${lat} IS NOT NULL
-      AND (${micodeba} = 1 OR ${micodeba} IS NULL OR ${idmdz} IS NULL OR ${idmdz} = 0)
-    GROUP BY ${id1}
-    ORDER BY MIN(${data}) DESC
+    FROM (${inner}) x
+    GROUP BY x.IdReal1
+    ORDER BY MIN(x.Data) DESC
   `;
   return injectWhere(base, nonDateWhere);
 }
@@ -121,30 +154,44 @@ export function buildOrderDetailQuery(idReal1List: number[]): string {
   const cd = rvaSql("CD");
   const prod = rvaSql("PROD");
   const prodCode = rvaSql("PRODCODE");
+  const idprod = rvaSql("IDPROD");
   const raod = rvaSql("RAOD");
   const fasi = rvaSql("FASI");
   const tanxa = rvaSql("TANXA");
   const tev = rvaSql("TEVADOBATOTAL");
   const bruto = rvaSql("BRUTOTOTAL");
+  const vRaod = `v.${raod}`;
+  const vIdProd = `v.${idprod}`;
+
+  const linePalletsExpr = `
+    CAST(CASE
+      WHEN p.UnitsPerPallet IS NOT NULL AND p.UnitsPerPallet > 0
+      THEN CEILING(CAST(${vRaod} AS float) / p.UnitsPerPallet)
+      ELSE 0
+    END AS float)`;
 
   return `
     SELECT
-      ${id1}   AS IdReal1,
-      ${id2}   AS IdReal2,
-      ${idorg} AS OrgCode,
-      ${org}   AS Org,
-      ${city}  AS City,
-      ${cd}    AS Address,
-      ${prodCode} AS ProdCode,
-      ${prod}  AS Prod,
-      CAST(${raod}  AS float) AS Qty,
-      CAST(${fasi}  AS float) AS Price,
-      CAST(${tanxa} AS float) AS LineAmount,
-      CAST(${tev}   AS float) AS Liters,
-      CAST(${bruto} AS float) AS Kg
-    FROM ${VIEW_NAME}
-    WHERE ${id1} IN (${ids})
-    ORDER BY ${id1}, ${data}, ${id2}
+      v.${id1}   AS IdReal1,
+      v.${id2}   AS IdReal2,
+      v.${idorg} AS OrgCode,
+      v.${org}   AS Org,
+      v.${city}  AS City,
+      v.${cd}    AS Address,
+      v.${prodCode} AS ProdCode,
+      v.${prod}  AS Prod,
+      CAST(v.${raod}  AS float) AS Qty,
+      CAST(v.${fasi}  AS float) AS Price,
+      CAST(v.${tanxa} AS float) AS LineAmount,
+      CAST(v.${tev}   AS float) AS Liters,
+      CAST(v.${bruto} AS float) AS Kg,
+      ${linePalletsExpr} AS LinePallets,
+      p.UnitsPerPallet AS UnitsPerPallet
+    FROM ${VIEW_NAME} v
+    LEFT JOIN dbo.SndApp_ProductPalletCapacity p
+      ON LTRIM(RTRIM(CAST(${vIdProd} AS NVARCHAR(50)))) = LTRIM(RTRIM(p.IdProd))
+    WHERE v.${id1} IN (${ids})
+    ORDER BY v.${id1}, v.${data}, v.${id2}
   `;
 }
 

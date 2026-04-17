@@ -192,6 +192,9 @@ export type ExcelSheetPart = {
   sheetName: string;
   rows: Record<string, unknown>[];
   columnOrder?: string[];
+  /** Footer row (same as DataTable / browser Excel export). Omit for sheets that embed totals in data (e.g. matrix). */
+  totals?: Record<string, number | null> | null;
+  totalLabel?: string;
 };
 
 /**
@@ -210,6 +213,8 @@ export async function buildExcelBufferMultiSheet(parts: ExcelSheetPart[]): Promi
     await addWorksheetFromRows(ExcelJS, workbook, p.rows, {
       sheetName: p.sheetName,
       columnOrder: p.columnOrder,
+      totals: p.totals,
+      totalLabel: p.totalLabel,
     });
   }
   const buffer = await workbook.xlsx.writeBuffer();

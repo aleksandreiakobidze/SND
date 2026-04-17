@@ -54,7 +54,8 @@ export function DistributionDriverCard({
   const overCapacity =
     (stat.hasLitersLimit && stat.litersPct >= 100) ||
     (stat.hasKgLimit && stat.kgPct >= 100) ||
-    (stat.hasOrdersLimit && stat.ordersPct >= 100);
+    (stat.hasOrdersLimit && stat.ordersPct >= 100) ||
+    (stat.hasPalletsLimit && stat.palletsPct >= 100);
 
   return (
     <div
@@ -103,10 +104,23 @@ export function DistributionDriverCard({
         </div>
       </div>
 
-      {/* Load bars — only render if that capacity was actually configured */}
+      {/* Load bars — limits only when configured; pallets total still shown without max */}
       <div className="space-y-2">
         {stat.hasLitersLimit && <LoadBar label={t("distLiters")} value={stat.totalLiters} max={stat.maxLiters} pct={stat.litersPct} />}
         {stat.hasKgLimit && <LoadBar label={t("distWeight")} value={stat.totalKg} max={stat.maxKg} pct={stat.kgPct} />}
+        {stat.hasPalletsLimit && <LoadBar label={t("distPallets")} value={stat.totalPallets} max={stat.maxPallets} pct={stat.palletsPct} />}
+        {!stat.hasPalletsLimit && stat.totalPallets > 0 && (
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground font-medium">{t("distPallets")}</span>
+            <span className="tabular-nums text-muted-foreground">
+              {stat.totalPallets.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              <span className="text-muted-foreground/70 font-normal">
+                {" "}
+                ({t("distPalletsNoMaxHint")})
+              </span>
+            </span>
+          </div>
+        )}
         {stat.hasOrdersLimit && <LoadBar label={t("distOrders")} value={stat.orderCount} max={stat.maxOrders} pct={stat.ordersPct} />}
       </div>
 

@@ -91,6 +91,9 @@ function OrderRow({ detail, index, onRemove }: OrderRowProps) {
             <span className="text-[11px] tabular-nums text-muted-foreground">
               {detail.kg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg
             </span>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {detail.pallets.toLocaleString(undefined, { maximumFractionDigits: 0 })} {t("distPallets")}
+            </span>
             <span className="text-[10px] tabular-nums text-muted-foreground/50">#{detail.idReal1}</span>
           </div>
         </div>
@@ -152,6 +155,16 @@ function OrderRow({ detail, index, onRemove }: OrderRowProps) {
                     <span className="text-border/50 select-none">·</span>
                     <span className="text-[11px] text-muted-foreground tabular-nums">
                       {line.kg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg
+                    </span>
+                    <span className="text-border/50 select-none">·</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {line.pallets.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
+                      {t("distPallets")}
+                      {line.unitsPerPallet != null && line.unitsPerPallet > 0 && (
+                        <span className="text-muted-foreground/75">
+                          {" "}({t("distUnitsPerPallet")}: {line.unitsPerPallet.toLocaleString(undefined, { maximumFractionDigits: 2 })})
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
@@ -258,6 +271,7 @@ export function OrderDetailSheet({ open, onClose, stat, driverColor, onRemoveOrd
             <div className="space-y-2">
               {stat.hasLitersLimit && <MiniLoadBar pct={stat.litersPct} label={t("distLiters")} />}
               {stat.hasKgLimit && <MiniLoadBar pct={stat.kgPct} label={t("distWeight")} />}
+              {stat.hasPalletsLimit && <MiniLoadBar pct={stat.palletsPct} label={t("distPallets")} />}
               {stat.hasOrdersLimit && <MiniLoadBar pct={stat.ordersPct} label={t("distOrders")} />}
 
               {/* Summary stats */}
@@ -274,6 +288,12 @@ export function OrderDetailSheet({ open, onClose, stat, driverColor, onRemoveOrd
                     <>
                       <span className="text-border">|</span>
                       <span>{t("distWeight")}: <strong className="text-foreground">{stat.totalKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg</strong></span>
+                    </>
+                  )}
+                  {stat.hasPalletsLimit && (
+                    <>
+                      <span className="text-border">|</span>
+                      <span>{t("distPallets")}: <strong className="text-foreground">{stat.totalPallets.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong></span>
                     </>
                   )}
                   <span className="text-border">|</span>

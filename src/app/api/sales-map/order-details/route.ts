@@ -47,11 +47,15 @@ export async function GET(req: NextRequest) {
           amount: 0,
           liters: 0,
           kg: 0,
+          pallets: 0,
           lines: [],
         });
       }
 
       const detail = orderMap.get(id)!;
+      const up = r.UnitsPerPallet;
+      const unitsPerPallet =
+        up != null && Number.isFinite(Number(up)) ? Number(up) : null;
       const line: OrderLineItem = {
         idReal2: Number(r.IdReal2),
         prodCode: String(r.ProdCode ?? ""),
@@ -61,12 +65,15 @@ export async function GET(req: NextRequest) {
         lineAmount: Number(r.LineAmount) || 0,
         liters: Number(r.Liters) || 0,
         kg: Number(r.Kg) || 0,
+        pallets: Number(r.LinePallets) || 0,
+        unitsPerPallet,
       };
 
       detail.lines.push(line);
       detail.amount += line.lineAmount;
       detail.liters += line.liters;
       detail.kg += line.kg;
+      detail.pallets += line.pallets;
     }
 
     const details: OrderDetail[] = idReal1List

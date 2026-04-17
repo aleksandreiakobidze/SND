@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { APIError } from "openai";
 import { executeReadOnlyQuery } from "@/lib/db";
 import { formatOwnerHintsForSystemPrompt, listOwnerAgentHints } from "@/lib/owner-agent-hints-db";
 import { requireAuth, forbidden } from "@/lib/auth-route-helpers";
@@ -21,6 +22,17 @@ export async function POST(req: NextRequest) {
     if (!auth.ok) return auth.res;
     if (!canUseAgent(auth.ctx.permissions)) return forbidden();
 
+    if (!process.env.OPENAI_API_KEY?.trim()) {
+      return NextResponse.json(
+        {
+          error: "OpenAI is not configured",
+          details:
+            "Set OPENAI_API_KEY in your environment (e.g. .env.local) and restart the dev server.",
+        },
+        { status: 503 },
+      );
+    }
+
     const { question, history, locale } = await req.json();
 
     if (!question || typeof question !== "string") {
@@ -30,7 +42,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const hints = await listOwnerAgentHints(auth.ctx.user.id);
+    let hints: Awaited<ReturnType<typeof listOwnerAgentHints>> = [];
+    try {
+      hints = await listOwnerAgentHints(auth.ctx.user.id);
+    } catch (hintErr) {
+      console.warn(
+        "Owner agent hints unavailable (continuing without):",
+        hintErr instanceof Error ? hintErr.message : hintErr,
+      );
+    }
     const ownerHintsBlock = formatOwnerHintsForSystemPrompt(hints);
     const aliasMap = extractAliasMapFromHints(hints);
     const aliasContext = normalizeQuestionWithAliases(question, aliasMap);
@@ -139,6 +159,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `Access denied for ${error.domain} domain` },
         { status: 403 }
+      );
+    }
+    if (error instanceof APIError) {
+      console.error("Agent API OpenAI error:", error.status, error.message);
+      return NextResponse.json(
+        {
+          error: "OpenAI request failed",
+          details: error.message,
+          ...(error.status != null ? { openaiHttpStatus: error.status } : {}),
+        },
+        { status: 502 },
       );
     }
     console.error("Agent API error:", error);

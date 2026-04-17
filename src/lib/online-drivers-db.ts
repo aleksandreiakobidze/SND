@@ -71,6 +71,7 @@ export type DriverWithCapacity = DriverRow & {
   maxLiters: number | null;
   maxKg: number | null;
   maxOrders: number | null;
+  maxPallets: number | null;
   vehiclePlate: string | null;
   vehicleType: string | null;
 };
@@ -86,7 +87,7 @@ export async function listDriversWithCapacity(): Promise<DriverWithCapacity[]> {
   try {
     const r = await pool.request().query<Record<string, unknown>>(
       `SELECT ${idCol} AS id, ${nameCol} AS displayName,
-              MaxCapacityLiters, MaxCapacityKg, MaxOrders,
+              MaxCapacityLiters, MaxCapacityKg, MaxOrders, MaxPallets,
               VehiclePlate, VehicleType
        FROM dbo.SndApp_DriverTable
        ${activeWhereClause()}
@@ -100,6 +101,7 @@ export async function listDriversWithCapacity(): Promise<DriverWithCapacity[]> {
       maxLiters: null,
       maxKg: null,
       maxOrders: null,
+      maxPallets: null,
       vehiclePlate: null,
       vehicleType: null,
     }));
@@ -110,6 +112,7 @@ export interface UpdateCapacityInput {
   maxLiters?: number | null;
   maxKg?: number | null;
   maxOrders?: number | null;
+  maxPallets?: number | null;
   vehiclePlate?: string | null;
   vehicleType?: string | null;
 }
@@ -138,6 +141,10 @@ export async function updateDriverCapacity(
   if (input.maxOrders !== undefined) {
     setClauses.push("MaxOrders = @maxOrders");
     req.input("maxOrders", sql.Int, input.maxOrders ?? null);
+  }
+  if (input.maxPallets !== undefined) {
+    setClauses.push("MaxPallets = @maxPallets");
+    req.input("maxPallets", sql.Int, input.maxPallets ?? null);
   }
   if (input.vehiclePlate !== undefined) {
     setClauses.push("VehiclePlate = @vehiclePlate");
@@ -257,6 +264,7 @@ function mapCapacityRow(row: Record<string, unknown>): DriverWithCapacity {
     maxLiters: toNum(row.MaxCapacityLiters),
     maxKg: toNum(row.MaxCapacityKg),
     maxOrders: toNum(row.MaxOrders),
+    maxPallets: toNum(row.MaxPallets),
     vehiclePlate: toStr(row.VehiclePlate),
     vehicleType: toStr(row.VehicleType),
   };

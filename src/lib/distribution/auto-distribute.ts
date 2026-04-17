@@ -27,6 +27,7 @@ interface DriverBucket {
   orders: OrderForDistribution[];
   totalLiters: number;
   totalKg: number;
+  totalPallets: number;
   totalAmount: number;
 }
 
@@ -43,6 +44,12 @@ function canFit(bucket: DriverBucket, order: OrderForDistribution): boolean {
   if (bucket.orders.length >= max.orders) return false;
   if (bucket.totalLiters + order.liters > max.liters) return false;
   if (bucket.totalKg + order.weightKg > max.kg) return false;
+  if (
+    bucket.driver.maxPallets > 0 &&
+    bucket.totalPallets + order.pallets > bucket.driver.maxPallets
+  ) {
+    return false;
+  }
   const regions = bucket.driver.allowedRegions;
   if (regions.length > 0 && !regions.includes(order.reg)) return false;
   return true;
@@ -52,6 +59,7 @@ function addToBucket(bucket: DriverBucket, order: OrderForDistribution): void {
   bucket.orders.push(order);
   bucket.totalLiters += order.liters;
   bucket.totalKg += order.weightKg;
+  bucket.totalPallets += order.pallets;
   bucket.totalAmount += order.amount;
 }
 
@@ -82,6 +90,7 @@ export function autoDistribute(
     orders: [],
     totalLiters: 0,
     totalKg: 0,
+    totalPallets: 0,
     totalAmount: 0,
   }));
 
@@ -121,10 +130,13 @@ export function autoDistribute(
         const dist = haversineKm(order.lat, order.lon, c.lat, c.lon);
 
         const max = effectiveMax(buckets[bi].driver);
+        const drv = buckets[bi].driver;
         const litPct = max.liters > 0 ? buckets[bi].totalLiters / max.liters : 0;
         const kgPct = max.kg > 0 ? buckets[bi].totalKg / max.kg : 0;
         const ordPct = max.orders > 0 ? buckets[bi].orders.length / max.orders : 0;
-        const loadFactor = Math.max(litPct, kgPct, ordPct);
+        const palPct =
+          drv.maxPallets > 0 ? buckets[bi].totalPallets / drv.maxPallets : 0;
+        const loadFactor = Math.max(litPct, kgPct, ordPct, palPct);
         const score = dist * (1 + loadFactor * 0.5);
 
         if (score < bestScore) {
@@ -143,6 +155,7 @@ export function autoDistribute(
 
   const driverStats: DriverLoadStats[] = buckets.map((b) => {
     const max = effectiveMax(b.driver);
+    const maxPal = b.driver.maxPallets > 0 ? b.driver.maxPallets : 0;
     return {
       driverId: b.driver.id,
       driverName: b.driver.displayName,
@@ -152,16 +165,20 @@ export function autoDistribute(
       orderCount: b.orders.length,
       totalLiters: Math.round(b.totalLiters * 100) / 100,
       totalKg: Math.round(b.totalKg * 100) / 100,
+      totalPallets: Math.round(b.totalPallets * 100) / 100,
       totalAmount: Math.round(b.totalAmount * 100) / 100,
       maxLiters: max.liters,
       maxKg: max.kg,
       maxOrders: max.orders,
+      maxPallets: maxPal,
       litersPct: pct(b.totalLiters, max.liters),
       kgPct: pct(b.totalKg, max.kg),
       ordersPct: pct(b.orders.length, max.orders),
+      palletsPct: pct(b.totalPallets, maxPal),
       hasLitersLimit: b.driver.maxLiters > 0,
       hasKgLimit: b.driver.maxKg > 0,
       hasOrdersLimit: b.driver.maxOrders > 0,
+      hasPalletsLimit: b.driver.maxPallets > 0,
     };
   });
 

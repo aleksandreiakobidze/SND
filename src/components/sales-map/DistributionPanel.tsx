@@ -229,6 +229,7 @@ export function DistributionPanel({
       const order = orders.find((o) => o.idReal1 === orderId);
       const liters = s.totalLiters - (order?.liters ?? 0);
       const kg = s.totalKg - (order?.weightKg ?? 0);
+      const pallets = s.totalPallets - (order?.pallets ?? 0);
       const amount = s.totalAmount - (order?.amount ?? 0);
       return {
         ...s,
@@ -236,9 +237,14 @@ export function DistributionPanel({
         orderCount: newIds.length,
         totalLiters: Math.max(0, liters),
         totalKg: Math.max(0, kg),
+        totalPallets: Math.max(0, pallets),
         totalAmount: Math.max(0, amount),
         litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
         kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+        palletsPct:
+          s.hasPalletsLimit && s.maxPallets > 0
+            ? Math.round((Math.max(0, pallets) / s.maxPallets) * 1000) / 10
+            : 0,
         ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
       };
     });
@@ -261,6 +267,7 @@ export function DistributionPanel({
       const newIds = [...s.orderIds, orderId];
       const liters = s.totalLiters + (order?.liters ?? 0);
       const kg = s.totalKg + (order?.weightKg ?? 0);
+      const pallets = s.totalPallets + (order?.pallets ?? 0);
       const amount = s.totalAmount + (order?.amount ?? 0);
       return {
         ...s,
@@ -268,9 +275,14 @@ export function DistributionPanel({
         orderCount: newIds.length,
         totalLiters: liters,
         totalKg: kg,
+        totalPallets: pallets,
         totalAmount: amount,
         litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
         kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+        palletsPct:
+          s.hasPalletsLimit && s.maxPallets > 0
+            ? Math.round((pallets / s.maxPallets) * 1000) / 10
+            : 0,
         ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
       };
     });
@@ -301,6 +313,7 @@ export function DistributionPanel({
             [t("distRegion")]: order?.reg ?? "",
             [t("distLiters")]: order?.liters ?? 0,
             [t("distWeight")]: order?.weightKg ?? 0,
+            [t("distPallets")]: order?.pallets ?? 0,
             [t("amount")]: order?.amount ?? 0,
             [t("distDeliveryDate")]: deliveryDate,
           });
@@ -320,6 +333,7 @@ export function DistributionPanel({
     (s) =>
       (s.hasLitersLimit && s.litersPct >= 100) ||
       (s.hasKgLimit && s.kgPct >= 100) ||
+      (s.hasPalletsLimit && s.palletsPct >= 100) ||
       (s.hasOrdersLimit && s.ordersPct >= 100),
   );
 

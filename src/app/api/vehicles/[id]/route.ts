@@ -47,6 +47,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       maxLiters?: number | null;
       maxKg?: number | null;
       maxOrders?: number | null;
+      maxPallets?: number | null;
       vehiclePlate?: string | null;
       vehicleType?: string | null;
     };
@@ -67,6 +68,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
       maxLiters: toNum(body.maxLiters),
       maxKg: toNum(body.maxKg),
       maxOrders: body.maxOrders !== undefined ? (body.maxOrders === null ? null : Math.floor(Number(body.maxOrders))) : undefined,
+      maxPallets:
+        body.maxPallets !== undefined
+          ? body.maxPallets === null
+            ? null
+            : (() => {
+                const n = Math.floor(Number(body.maxPallets));
+                return Number.isFinite(n) && n >= 0 ? n : null;
+              })()
+          : undefined,
       vehiclePlate: body.vehiclePlate !== undefined ? (toStr(body.vehiclePlate) as string | null) : undefined,
       vehicleType: body.vehicleType !== undefined ? (toStr(body.vehicleType) as string | null) : undefined,
     });

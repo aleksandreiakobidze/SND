@@ -146,15 +146,21 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
           const newIds = s.orderIds.filter((id) => id !== orderId);
           const liters = s.totalLiters - order.liters;
           const kg = s.totalKg - order.weightKg;
+          const pallets = s.totalPallets - order.pallets;
           return {
             ...s,
             orderIds: newIds,
             orderCount: newIds.length,
             totalLiters: Math.max(0, liters),
             totalKg: Math.max(0, kg),
+            totalPallets: Math.max(0, pallets),
             totalAmount: Math.max(0, s.totalAmount - order.amount),
             litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
             kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+            palletsPct:
+              s.hasPalletsLimit && s.maxPallets > 0
+                ? Math.round((Math.max(0, pallets) / s.maxPallets) * 1000) / 10
+                : 0,
             ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
           };
         }
@@ -162,15 +168,21 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
           const newIds = [...s.orderIds, orderId];
           const liters = s.totalLiters + order.liters;
           const kg = s.totalKg + order.weightKg;
+          const pallets = s.totalPallets + order.pallets;
           return {
             ...s,
             orderIds: newIds,
             orderCount: newIds.length,
             totalLiters: liters,
             totalKg: kg,
+            totalPallets: pallets,
             totalAmount: s.totalAmount + order.amount,
             litersPct: s.maxLiters > 0 ? Math.round((liters / s.maxLiters) * 1000) / 10 : 0,
             kgPct: s.maxKg > 0 ? Math.round((kg / s.maxKg) * 1000) / 10 : 0,
+            palletsPct:
+              s.hasPalletsLimit && s.maxPallets > 0
+                ? Math.round((pallets / s.maxPallets) * 1000) / 10
+                : 0,
             ordersPct: s.maxOrders > 0 ? Math.round((newIds.length / s.maxOrders) * 1000) / 10 : 0,
           };
         }
@@ -287,10 +299,12 @@ export function SalesMapView({ filtersKey, filtersReady }: Props) {
     if (mapFilterDriverId == null || !distPlan || previewOrderIdsByDriver == null) {
       return rowsFilteredByDriver;
     }
-    return rowsFilteredByDriver.filter((row) =>
+    // Planned routes still have Micodeba=1 in ERP until "Apply". The assigned/unassigned
+    // map toggle would hide them — use full `rows` so the driver's preview orders show.
+    return rows.filter((row) =>
       rowMatchesDistributionDriver(row, mapFilterDriverId, previewOrderIdsByDriver),
     );
-  }, [rowsFilteredByDriver, mapFilterDriverId, distPlan, previewOrderIdsByDriver]);
+  }, [rows, rowsFilteredByDriver, mapFilterDriverId, distPlan, previewOrderIdsByDriver]);
 
   const allowedOrderIdsForTable = useMemo(() => {
     const s = new Set<number>();

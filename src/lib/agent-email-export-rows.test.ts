@@ -19,6 +19,29 @@ describe("agent-email-export-rows", () => {
     expect(rows[0]).toHaveProperty("region");
   });
 
+  it("flat export includes totals for summable columns (matches DataTable footer)", () => {
+    const { rows, totals } = buildFlatTableEmailExportRows({
+      rawRows: [
+        { Category: "A", Brand: "X", Revenue: 100 },
+        { Category: "B", Brand: "Y", Revenue: 200 },
+      ],
+      chartConfig: null,
+      chartType: "table",
+    });
+    expect(rows.length).toBe(2);
+    expect(totals).not.toBeNull();
+    expect(totals?.Revenue).toBe(300);
+    expect(totals?.Category).toBeNull();
+    expect(totals?.Brand).toBeNull();
+  });
+
+  it("chart bundle flat sheet includes totals and totalLabel for email Excel", () => {
+    const parts = buildChartViewExcelSheetParts(simpleArgs, "en");
+    expect(parts[0].totals).not.toBeNull();
+    expect(parts[0].totalLabel).toBe("Total");
+    expect(parts[0].totals?.revenue).toBe(100);
+  });
+
   it("matrix export is null when no matrix layout", () => {
     expect(buildMatrixEmailExportRows(simpleArgs)).toBeNull();
   });

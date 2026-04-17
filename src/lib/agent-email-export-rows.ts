@@ -5,6 +5,8 @@ import { buildAgentMatrixExportModel } from "@/lib/agent-matrix-export";
 import { matrixExportColumnOrder, matrixToFlatExportRows } from "@/lib/agent-matrix";
 import { computeAgentMatrixView } from "@/lib/agent-matrix-view";
 import type { ExcelSheetPart } from "@/lib/excel-workbook-from-rows";
+import { translations } from "@/lib/i18n";
+import { computeColumnTotals } from "@/lib/table-totals";
 import type { ChartConfig } from "@/types";
 
 export function comparisonIntentFromChartConfig(chartConfig: ChartConfig | null): ComparisonIntentResult {
@@ -46,17 +48,26 @@ function postprocessForExport(args: AgentExportRowBuildArgs) {
 
 /**
  * Flat tabular export: longData or raw table rows — never matrix-flattened.
+ * `totals` matches DataTable footer / browser "Export full report" (summable columns only).
  */
 export function buildFlatTableEmailExportRows(
   args: AgentExportRowBuildArgs,
-): { rows: Record<string, unknown>[]; columnOrder?: string[] } {
+): {
+  rows: Record<string, unknown>[];
+  columnOrder?: string[];
+  totals: Record<string, number | null> | null;
+} {
   const processed = postprocessForExport(args);
   const cc = processed.chartConfig;
   const data = processed.data;
   const comp = cc?.comparison;
   const flat = comp?.longData?.length ? comp.longData : data;
-  const columnOrder = flat[0] ? Object.keys(flat[0]) : undefined;
-  return { rows: flat, columnOrder };
+  if (!flat.length) {
+    return { rows: flat, columnOrder: undefined, totals: null };
+  }
+  const columnOrder = Object.keys(flat[0]);
+  const totals = computeColumnTotals(columnOrder, flat);
+  return { rows: flat, columnOrder, totals };
 }
 
 /**
@@ -97,12 +108,15 @@ export function buildChartViewExcelSheetParts(
   locale: "en" | "ka",
 ): ExcelSheetPart[] {
   const flat = buildFlatTableEmailExportRows(args);
+  const totalLabel = translations[locale].tableTotal;
   const matrix = buildMatrixEmailExportRows(args);
   const parts: ExcelSheetPart[] = [
     {
       sheetName: "Flat table",
       rows: flat.rows,
       columnOrder: flat.columnOrder,
+      totals: flat.totals,
+      totalLabel,
     },
   ];
   if (matrix && matrix.rows.length > 0) {

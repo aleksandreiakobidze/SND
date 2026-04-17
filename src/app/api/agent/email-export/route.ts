@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (activeReportView === "flat") {
-      const { rows, columnOrder } = buildFlatTableEmailExportRows(exportArgs);
+      const { rows, columnOrder, totals } = buildFlatTableEmailExportRows(exportArgs);
       if (!rows.length) {
         return NextResponse.json(
           { error: "EMPTY_EXPORT", message: "Export produced no rows." },
@@ -190,6 +190,8 @@ export async function POST(req: NextRequest) {
       buffer = await buildExcelBufferFromRows(rows, {
         sheetName: "Flat table",
         columnOrder,
+        totals,
+        totalLabel: translations[locale].tableTotal,
       });
       excelDeliveryKind = "flat";
       excelFilename = `${base}_flat_table_${dateStamp}.xlsx`;
